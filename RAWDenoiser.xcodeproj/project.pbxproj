@@ -6,8 +6,27 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E3A7614D2F521362006B8241 /* MetalPerformanceShadersGraph.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3A7614C2F521362006B8241 /* MetalPerformanceShadersGraph.framework */; };
+		E3A7614F2F521383006B8241 /* MetalPerformanceShaders.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3A7614E2F521383006B8241 /* MetalPerformanceShaders.framework */; };
+		E3B0A3532F4C0FBD002A5EBA /* Vision.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A3522F4C0FBD002A5EBA /* Vision.framework */; };
+		E3B0A3552F4C0FCA002A5EBA /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A3542F4C0FCA002A5EBA /* CoreVideo.framework */; };
+		E3B0A3572F4C0FDF002A5EBA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A3562F4C0FDF002A5EBA /* Foundation.framework */; };
+		E3B0A3592F4C0FE1002A5EBA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A3582F4C0FE1002A5EBA /* AVFoundation.framework */; };
+		E3B0A35B2F4D0001002A5EBA /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A35A2F4D0001002A5EBA /* Metal.framework */; };
+		E3B0A35C2F4E0001002A5EBA /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A35D2F4E0001002A5EBA /* CoreML.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
-		E3B0A3202F4C0D64002A5EBA /* RAWDenoiser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RAWDenoiser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3A7614C2F521362006B8241 /* MetalPerformanceShadersGraph.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShadersGraph.framework; path = System/Library/Frameworks/MetalPerformanceShadersGraph.framework; sourceTree = SDKROOT; };
+		E3A7614E2F521383006B8241 /* MetalPerformanceShaders.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShaders.framework; path = System/Library/Frameworks/MetalPerformanceShaders.framework; sourceTree = SDKROOT; };
+		E3B0A3202F4C0D64002A5EBA /* BayerFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BayerFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3B0A3522F4C0FBD002A5EBA /* Vision.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Vision.framework; path = System/Library/Frameworks/Vision.framework; sourceTree = SDKROOT; };
+		E3B0A3542F4C0FCA002A5EBA /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		E3B0A3562F4C0FDF002A5EBA /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		E3B0A3582F4C0FE1002A5EBA /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		E3B0A35A2F4D0001002A5EBA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		E3B0A35D2F4E0001002A5EBA /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -23,6 +42,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E3B0A3572F4C0FDF002A5EBA /* Foundation.framework in Frameworks */,
+				E3B0A3552F4C0FCA002A5EBA /* CoreVideo.framework in Frameworks */,
+				E3A7614D2F521362006B8241 /* MetalPerformanceShadersGraph.framework in Frameworks */,
+				E3B0A3532F4C0FBD002A5EBA /* Vision.framework in Frameworks */,
+				E3A7614F2F521383006B8241 /* MetalPerformanceShaders.framework in Frameworks */,
+				E3B0A3592F4C0FE1002A5EBA /* AVFoundation.framework in Frameworks */,
+				E3B0A35B2F4D0001002A5EBA /* Metal.framework in Frameworks */,
+				E3B0A35C2F4E0001002A5EBA /* CoreML.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -33,6 +60,7 @@
 			isa = PBXGroup;
 			children = (
 				E3B0A3222F4C0D64002A5EBA /* RAWDenoiser */,
+				E3B0A3512F4C0FBC002A5EBA /* Frameworks */,
 				E3B0A3212F4C0D64002A5EBA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,9 +68,24 @@
 		E3B0A3212F4C0D64002A5EBA /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				E3B0A3202F4C0D64002A5EBA /* RAWDenoiser.app */,
+				E3B0A3202F4C0D64002A5EBA /* BayerFlow.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E3B0A3512F4C0FBC002A5EBA /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				E3A7614E2F521383006B8241 /* MetalPerformanceShaders.framework */,
+				E3A7614C2F521362006B8241 /* MetalPerformanceShadersGraph.framework */,
+				E3B0A3562F4C0FDF002A5EBA /* Foundation.framework */,
+				E3B0A3542F4C0FCA002A5EBA /* CoreVideo.framework */,
+				E3B0A3522F4C0FBD002A5EBA /* Vision.framework */,
+				E3B0A3582F4C0FE1002A5EBA /* AVFoundation.framework */,
+				E3B0A35A2F4D0001002A5EBA /* Metal.framework */,
+				E3B0A35D2F4E0001002A5EBA /* CoreML.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -67,7 +110,7 @@
 			packageProductDependencies = (
 			);
 			productName = RAWDenoiser;
-			productReference = E3B0A3202F4C0D64002A5EBA /* RAWDenoiser.app */;
+			productReference = E3B0A3202F4C0D64002A5EBA /* BayerFlow.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -78,10 +121,11 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					E3B0A31F2F4C0D64002A5EBA = {
 						CreatedOnToolsVersion = 26.2;
+						LastSwiftMigration = 2620;
 					};
 				};
 			};
@@ -159,6 +203,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 485A8X67J3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -183,7 +228,12 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				"OTHER_LDFLAGS[arch=*]" = (
+					"-lpthread",
+					"-lm",
+				);
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -223,6 +273,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 485A8X67J3;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -240,7 +291,12 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				"OTHER_LDFLAGS[arch=*]" = (
+					"-lpthread",
+					"-lm",
+				);
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -250,28 +306,34 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 485A8X67J3;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_FILE = RAWDenoiser/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BayerFlow;
+				INFOPLIST_KEY_CFBundleName = BayerFlow;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Kaden Lee. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.KadenLee.RAWDenoiser;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayerflow.app;
+				PRODUCT_NAME = BayerFlow;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "RAWDenoiser/RAWDenoiser-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -282,28 +344,33 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 485A8X67J3;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_FILE = RAWDenoiser/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BayerFlow;
+				INFOPLIST_KEY_CFBundleName = BayerFlow;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Kaden Lee. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.KadenLee.RAWDenoiser;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayerflow.app;
+				PRODUCT_NAME = BayerFlow;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "RAWDenoiser/RAWDenoiser-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
