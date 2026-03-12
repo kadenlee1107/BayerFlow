@@ -530,8 +530,14 @@ kernel void vst_bilateral_fuse(
     float fdy = flow_y[gy * gw + gx];
 
     uint idx = ry * w + rx;
-    float z_ref = z_preest[idx];
     float cv_raw = float(center_frame[idx]);
+    // Use z_center (not z_preest) as bilateral reference.
+    // z_preest is a Phase-1 hard-threshold average that carries Poisson skew
+    // upward for low-signal channels (R, B), which then biases Phase-2 to
+    // preferentially accept upward-drifted neighbors — causing a systematic
+    // R/B uplift vs G (visible magenta cast). Using the center frame directly
+    // as reference is unbiased by construction.
+    float z_ref = vst_fwd(cv_raw, params.black_level, params.shot_gain, params.read_noise);
 
     // Bright-surface h reduction: tighter bilateral acceptance for high-SNR
     // pixels where flow errors cause smearing on textureless skin.
