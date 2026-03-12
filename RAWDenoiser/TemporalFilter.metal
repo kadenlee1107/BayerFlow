@@ -473,8 +473,16 @@ kernel void vst_bilateral_collect(
 
     if (abs(z_n - z_c) > params.z_reject) return;
 
-    z_sum[idx]   += z_n;
-    z_count[idx] += 1.0f;
+    // Bilateral-weight the Phase-1 accumulation using z_center as reference.
+    // Unweighted accumulation carries Poisson noise skew upward (low-signal
+    // channels like R/B have right-skewed z distributions), producing a biased
+    // z_preest that Phase-2 then uses to preferentially accept brighter neighbors
+    // — causing the systematic R/B uplift (magenta cast). Weighting by proximity
+    // to z_center keeps z_preest unbiased while still averaging multiple frames.
+    float diff1 = z_n - z_c;
+    float w1 = exp(-diff1 * diff1 / (2.0f * params.h * params.h));
+    z_sum[idx]   += w1 * z_n;
+    z_count[idx] += w1;
 
     float fm = sqrt(fdx * fdx + fdy * fdy);
     max_flow_buf[idx] = max(max_flow_buf[idx], fm);
@@ -531,13 +539,10 @@ kernel void vst_bilateral_fuse(
 
     uint idx = ry * w + rx;
     float cv_raw = float(center_frame[idx]);
-    // Use z_center (not z_preest) as bilateral reference.
-    // z_preest is a Phase-1 hard-threshold average that carries Poisson skew
-    // upward for low-signal channels (R, B), which then biases Phase-2 to
-    // preferentially accept upward-drifted neighbors — causing a systematic
-    // R/B uplift vs G (visible magenta cast). Using the center frame directly
-    // as reference is unbiased by construction.
-    float z_ref = vst_fwd(cv_raw, params.black_level, params.shot_gain, params.read_noise);
+    // z_preest is now a bilateral-weighted average from Phase 1 (weighted by
+    // proximity to z_center), so it is unbiased and still smooth — safe to use
+    // as reference for all channels including chroma.
+    float z_ref = z_preest[idx];
 
     // Bright-surface h reduction: tighter bilateral acceptance for high-SNR
     // pixels where flow errors cause smearing on textureless skin.
