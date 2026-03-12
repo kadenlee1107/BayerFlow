@@ -544,11 +544,12 @@ kernel void vst_bilateral_fuse(
     // as reference for all channels including chroma.
     float z_ref = z_preest[idx];
 
-    // Bright-surface h reduction: tighter bilateral acceptance for high-SNR
-    // pixels where flow errors cause smearing on textureless skin.
-    float bright_reduce = 1.0f - 0.5f * clamp((cv_raw - 10000.0f) / 20000.0f, 0.0f, 1.0f);
-    float h_adj = params.h * bright_reduce;
-    float neg_inv_2h2 = -1.0f / (2.0f * h_adj * h_adj);
+    // Use uniform h for all channels: channel-specific bright_reduce caused
+    // systematic R/B uplift (magenta cast) because G pixels are brighter
+    // than R/B in natural scenes → G got narrower h → R/B got wider h →
+    // more temporal averaging for R/B → more Poisson skew bias for R/B vs G.
+    // Bright textureless surface protection is handled by tex_conf below.
+    float neg_inv_2h2 = -1.0f / (2.0f * params.h * params.h);
 
     // Flow attenuation (shared across hypotheses)
     float flow_mag2 = fdx * fdx + fdy * fdy;
@@ -597,9 +598,16 @@ kernel void vst_bilateral_fuse(
     }
 
     // ---- Multi-hypothesis sampling (M=4) ----
-    // Try 4 candidates around warped position, pick highest composite weight
+    // Try 4 candidates around warped position, pick highest composite weight.
+    // Accumulate PIXEL VALUE (v), not z-value.
+    // Weights are computed in z-space (signal-adaptive bandwidth), but we store
+    // the actual pixel value so Phase 3 outputs a pixel-space weighted mean.
+    // This eliminates the first-order Poisson z-skew color bias: z_n is
+    // right-skewed for low-signal channels (R/B), causing z_mean > z_true and
+    // inverse-Anscombe(z_mean) > true_v. Pixel values are symmetric around
+    // true_v (Gaussian approximation), so their weighted mean is unbiased.
     float best_w = -1.0f;
-    float best_z = 0.0f;
+    float best_v = 0.0f;
 
     for (int m = 0; m < 4; m++) {
         float hdx = fdx + VST_HYPS[m].x;
@@ -618,7 +626,7 @@ kernel void vst_bilateral_fuse(
 
         if (total > best_w) {
             best_w = total;
-            best_z = z;
+            best_v = v;   // store pixel value, not z
         }
     }
 
@@ -652,7 +660,7 @@ kernel void vst_bilateral_fuse(
         best_w *= tex_conf;
     }
 
-    val_sum[idx] += best_w * best_z;
+    val_sum[idx] += best_w * best_v;  // pixel-space accumulation
     w_sum[idx]   += best_w;
 }
 
@@ -672,7 +680,6 @@ kernel void vst_bilateral_finalize(
 
     uint idx = ry * w + rx;
     float cv = float(center_frame[idx]);
-    float z_center = vst_fwd(cv, params.black_level, params.shot_gain, params.read_noise);
     float nb_wsum = w_sum[idx];
     float nb_wzsum = val_sum[idx];
 
@@ -685,12 +692,9 @@ kernel void vst_bilateral_finalize(
     float mf = max_flow_buf[idx];
     float center_floor = 0.3f + 0.3f * min(mf / 3.0f, 1.0f);
 
-    // Chroma pixels (R and B: (ry&1)==(rx&1)) get a higher center-weight floor
-    // to prevent the biased neighbor pre-estimate from pulling B/R values away
-    // from the original, which otherwise causes a systematic B/G color shift.
-    bool is_chroma = ((ry & 1) == (rx & 1));
-    if (is_chroma) center_floor = min(center_floor + 0.25f, 0.85f);
-
+    // All channels treated uniformly — pixel-space accumulation in Phase 2
+    // eliminates the z-space Poisson skew bias that previously required a
+    // chroma-specific center-weight boost as a band-aid.
     float center_w = 1.0f;
 
     float center_frac = center_w / (center_w + nb_wsum);
@@ -700,11 +704,15 @@ kernel void vst_bilateral_finalize(
         nb_wzsum *= scale;
     }
 
+    // val_sum now contains weighted sum of raw pixel values (not z-values).
+    // Output a pixel-space weighted mean: (center_pixel + sum(w_i * v_i)) / (1 + sum(w_i)).
+    // This avoids inverse-Anscombe of a biased z-mean (Poisson right-skew in z-space
+    // causes systematic R/B uplift; pixel-space mean is unbiased).
+    // Weights were computed in z-space so bandwidth remains signal-adaptive.
     float total_w  = center_w + nb_wsum;
-    float total_wz = center_w * z_center + nb_wzsum;
-    float z_est = total_wz / total_w;
+    float total_wv = center_w * cv + nb_wzsum;   // cv is raw center pixel value
+    float v_est = total_wv / total_w;
 
-    float result = vst_inv(z_est, params.black_level, params.shot_gain, params.read_noise);
-    result = clamp(result, 0.0f, 65535.0f);
+    float result = clamp(v_est, 0.0f, 65535.0f);
     output[idx] = uint16_t(result + 0.5f);
 }
