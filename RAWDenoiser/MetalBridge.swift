@@ -98,7 +98,8 @@ func temporal_filter_vst_bilateral_gpu_ring(
     _ noiseSigma: Float,
     _ blackLevel: Float,
     _ shotGain: Float,
-    _ readNoise: Float
+    _ readNoise: Float,
+    _ maxNeighbors: Int32
 ) {
     if let gpu = MetalTemporalFilter.shared {
         gpu.filterFrameRingVSTBilateral(
@@ -114,7 +115,8 @@ func temporal_filter_vst_bilateral_gpu_ring(
             noiseSigma: noiseSigma,
             blackLevel: blackLevel,
             shotGain: shotGain,
-            readNoise: readNoise
+            readNoise: readNoise,
+            maxNeighbors: Int(maxNeighbors)
         )
     } else {
         // CPU fallback — build frame pointer array from ring
@@ -152,7 +154,8 @@ func temporal_filter_vst_bilateral_gpu_ring_commit(
     _ noiseSigma: Float,
     _ blackLevel: Float,
     _ shotGain: Float,
-    _ readNoise: Float
+    _ readNoise: Float,
+    _ maxNeighbors: Int32
 ) {
     if let gpu = MetalTemporalFilter.shared {
         gpu.filterFrameRingVSTBilateral(
@@ -169,7 +172,8 @@ func temporal_filter_vst_bilateral_gpu_ring_commit(
             blackLevel: blackLevel,
             shotGain: shotGain,
             readNoise: readNoise,
-            commitOnly: true
+            commitOnly: true,
+            maxNeighbors: Int(maxNeighbors)
         )
     }
     // If no GPU, fall through — wait() will be a no-op, output already filled synchronously

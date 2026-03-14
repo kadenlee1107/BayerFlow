@@ -86,7 +86,8 @@ extern void temporal_filter_vst_bilateral_gpu_ring(
     int num_frames, int center_idx,
     int width, int height,
     float noise_sigma,
-    float black_level, float shot_gain, float read_noise);
+    float black_level, float shot_gain, float read_noise,
+    int max_neighbors);
 
 /* Async variant: commits GPU work and returns immediately.
  * Output is NOT valid until temporal_filter_vst_bilateral_gpu_ring_wait() returns 1.
@@ -98,7 +99,8 @@ extern void temporal_filter_vst_bilateral_gpu_ring_commit(
     int num_frames, int center_idx,
     int width, int height,
     float noise_sigma,
-    float black_level, float shot_gain, float read_noise);
+    float black_level, float shot_gain, float read_noise,
+    int max_neighbors);
 extern int temporal_filter_vst_bilateral_gpu_ring_wait(void);
 
 /* ML denoiser (implemented in Swift/CoreML via @_cdecl) */
@@ -2188,6 +2190,10 @@ int denoise_file(
                     (const float **)of_fx_sets[ping], (const float **)of_fy_sets[ping],
                     frames_loaded, center, green_w, green_h, NULL);
                 int use_shared = (tf_mode == 2 && cnn_ctx.use_cnn);
+                /* Motion-adaptive GPU window: far neighbors have negligible bilateral weight
+                 * at high flow (exp(-flow²/8) → 0.006% at 5px). Reducing from 14 to 4
+                 * neighbors cuts Metal dispatches ~71%, saving ~120ms at high flow. */
+                int max_gpu_nbrs = (smoothed_flow < 2.0f) ? 14 : (smoothed_flow < 5.0f) ? 8 : 4;
                 t0 = timer_now();
                 if (tf_mode == 2) {
                     if (use_shared) {
@@ -2207,7 +2213,8 @@ int denoise_file(
                             (const float **)of_fy_sets[ping],
                             frames_loaded, center,
                             width, height,
-                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn,
+                            max_gpu_nbrs);
                     }
                 } else {
                     temporal_filter_frame_gpu_ring(denoised_bufs[ping],
@@ -2482,6 +2489,8 @@ int denoise_file(
                  * On M-series, ANE and GPU are independent hardware — they run truly
                  * in parallel, turning the 0.21+0.17=0.38s serial into max(0.21,0.17)=0.21s. */
                 int use_shared_ss = (tf_mode == 2 && cnn_ctx.use_cnn);
+                /* Motion-adaptive GPU window (same logic as warm-up path) */
+                int max_gpu_nbrs_ss = (smoothed_flow < 2.0f) ? 14 : (smoothed_flow < 5.0f) ? 8 : 4;
                 double t0 = timer_now();
                 int temporal_committed_async = 0;
                 if (tf_mode == 2) {
@@ -2503,7 +2512,8 @@ int denoise_file(
                             (const float **)of_fy_sets[ping],
                             frames_loaded, center,
                             width, height,
-                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn,
+                            max_gpu_nbrs_ss);
                         temporal_committed_async = 1;
                     } else {
                         /* Last frame: no OF(f+1) to kick, use sync path */
@@ -2514,7 +2524,8 @@ int denoise_file(
                             (const float **)of_fy_sets[ping],
                             frames_loaded, center,
                             width, height,
-                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn,
+                            max_gpu_nbrs_ss);
                     }
                 } else {
                     temporal_filter_frame_gpu_ring(denoised_bufs[ping],
@@ -3194,7 +3205,7 @@ int denoise_preview_frame(
                     denoised, ring_slots, use_denoised,
                     (const float **)fx, (const float **)fy,
                     loaded, center, width, height,
-                    tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                    tcfg.noise_sigma, vst_bl, vst_sg, vst_rn, 14);
 
                 /* Pass 2: feed pass-1 result back as denoised center */
                 uint16_t *dn_slot = gpu_ring_denoised_ptr(center);
@@ -3205,7 +3216,7 @@ int denoise_preview_frame(
                         denoised, ring_slots, use_denoised,
                         (const float **)fx, (const float **)fy,
                         loaded, center, width, height,
-                        tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                        tcfg.noise_sigma, vst_bl, vst_sg, vst_rn, 14);
                 }
             } else {
                 float cw_simple = compute_adaptive_center_weight(
