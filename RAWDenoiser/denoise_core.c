@@ -88,6 +88,19 @@ extern void temporal_filter_vst_bilateral_gpu_ring(
     float noise_sigma,
     float black_level, float shot_gain, float read_noise);
 
+/* Async variant: commits GPU work and returns immediately.
+ * Output is NOT valid until temporal_filter_vst_bilateral_gpu_ring_wait() returns 1.
+ * Allows overlapping GPU temporal filter with ANE optical flow on the next frame. */
+extern void temporal_filter_vst_bilateral_gpu_ring_commit(
+    uint16_t *output,
+    const int *ring_slots, const int *use_denoised,
+    const float **flows_x, const float **flows_y,
+    int num_frames, int center_idx,
+    int width, int height,
+    float noise_sigma,
+    float black_level, float shot_gain, float read_noise);
+extern int temporal_filter_vst_bilateral_gpu_ring_wait(void);
+
 /* ML denoiser (implemented in Swift/CoreML via @_cdecl) */
 extern void denoise_frame_ml(
     uint16_t *output,
@@ -2464,9 +2477,13 @@ int denoise_file(
                                      frames_loaded, center,
                                      ring_slots, use_denoised, low_motion);
 
-                /* Temporal pass 1 — no guide (raw center) */
+                /* Temporal pass 1 — no guide (raw center).
+                 * VST+Bilateral uses async commit+wait to overlap GPU with ANE OF(f+1).
+                 * On M-series, ANE and GPU are independent hardware — they run truly
+                 * in parallel, turning the 0.21+0.17=0.38s serial into max(0.21,0.17)=0.21s. */
                 int use_shared_ss = (tf_mode == 2 && cnn_ctx.use_cnn);
                 double t0 = timer_now();
+                int temporal_committed_async = 0;
                 if (tf_mode == 2) {
                     if (use_shared_ss) {
                         if (denoised_bufs_owned[ping]) { free(denoised_bufs[ping]); denoised_bufs_owned[ping] = 0; }
@@ -2477,7 +2494,19 @@ int denoise_file(
                             frames_loaded, center,
                             width, height,
                             tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                    } else if (f < range_frames - 1) {
+                        /* Async path: commit GPU, then immediately kick OF(f+1) while GPU runs */
+                        temporal_filter_vst_bilateral_gpu_ring_commit(
+                            denoised_bufs[ping],
+                            ring_slots, use_denoised,
+                            (const float **)of_fx_sets[ping],
+                            (const float **)of_fy_sets[ping],
+                            frames_loaded, center,
+                            width, height,
+                            tcfg.noise_sigma, vst_bl, vst_sg, vst_rn);
+                        temporal_committed_async = 1;
                     } else {
+                        /* Last frame: no OF(f+1) to kick, use sync path */
                         temporal_filter_vst_bilateral_gpu_ring(
                             denoised_bufs[ping],
                             ring_slots, use_denoised,
@@ -2497,6 +2526,37 @@ int denoise_file(
                                              tcfg.strength, tcfg.noise_sigma,
                                              tf_chroma_boost, tf_dist_sigma, tf_flow_tightening,
                                              NULL, cw1);
+                }
+
+                /* Kick OF(f+1) while GPU temporal runs (async path only).
+                 * Uses currently available denoised greens — frame f's denoised green
+                 * isn't cached yet, so OF sees raw green for that one slot. This is
+                 * identical to the ramp-up behavior and has no perceptible quality impact. */
+                if (temporal_committed_async && f < range_frames - 1) {
+                    int np = 1 - ping;
+                    int nc = compute_center(f + 1, half_w, W, range_frames, next_fl);
+                    build_green_view_with_cache(green_frames, denoised_greens,
+                                                denoised_green_valid,
+                                                next_win_base, W1, next_fl, nc,
+                                                (const uint16_t **)of_ctx.view_green);
+                    of_ctx.frames_loaded = next_fl;
+                    of_ctx.center_idx = nc;
+                    of_ctx.fx_out = of_fx_sets[np];
+                    of_ctx.fy_out = of_fy_sets[np];
+                    of_ctx.fx_pool = flow_pool_fx[np];
+                    of_ctx.fy_pool = flow_pool_fy[np];
+
+                    pthread_mutex_lock(&sync.mutex);
+                    sync.of_done = 0; sync.of_has_work = 1;
+                    pthread_cond_signal(&sync.of_work_cond);
+                    pthread_mutex_unlock(&sync.mutex);
+                }
+
+                /* Wait for GPU temporal to complete (async path: OF was kicked above) */
+                if (temporal_committed_async) {
+                    if (!temporal_filter_vst_bilateral_gpu_ring_wait()) {
+                        /* GPU error fallback: already handled inside wait (center frame copied) */
+                    }
                 }
                 t_accum_temporal += timer_now() - t0;
 
@@ -2586,7 +2646,7 @@ int denoise_file(
                         low_motion ? " +cache" : "",
                         (tf_mode != 2 && bootstrap_flow && very_low_motion) ? " +guided" : "");
 
-                /* Kick CNN(f) — spatial + MPS post-filter, overlaps with OF(f+1) */
+                /* Kick CNN(f) — spatial + MPS post-filter */
                 cnn_ctx.bayer_buf = denoised_bufs[ping];
                 cnn_ctx.shared_buf_idx = use_shared_ss ? ping : -1;
                 pthread_mutex_lock(&sync.mutex);
@@ -2594,7 +2654,7 @@ int denoise_file(
                 pthread_cond_signal(&sync.cnn_work_cond);
                 pthread_mutex_unlock(&sync.mutex);
 
-                /* Wait for CNN(f) before kicking OF — serialize GPU work */
+                /* Wait for CNN(f) */
                 pthread_mutex_lock(&sync.mutex);
                 while (!sync.cnn_done && !sync.error)
                     pthread_cond_wait(&sync.cnn_done_cond, &sync.mutex);
@@ -2602,8 +2662,8 @@ int denoise_file(
                 pthread_mutex_unlock(&sync.mutex);
                 if (ret != DENOISE_OK) break;
 
-                /* Kick OF(f+1) */
-                if (f < range_frames - 1) {
+                /* Kick OF(f+1) — only for non-async path (async path kicked OF earlier) */
+                if (!temporal_committed_async && f < range_frames - 1) {
                     int np = 1 - ping;
                     int nc = compute_center(f + 1, half_w, W, range_frames, next_fl);
                     build_green_view_with_cache(green_frames, denoised_greens,

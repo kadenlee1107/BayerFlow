@@ -55,6 +55,12 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
     private var zPreestimateBuf: MTLBuffer?
     private var maxFlowBuf: MTLBuffer?
 
+    // Async GPU state — used by commitOnly / waitGPU pair
+    private var asyncSemaphore: DispatchSemaphore? = nil
+    private var asyncSucceeded = true
+    private var asyncOutput: UnsafeMutablePointer<UInt16>? = nil
+    private var asyncFramePixels: Int = 0
+
     // Pre-allocated flow buffer pools — sized per-clip, reused every frame
     private static let maxNeighbors = 14  // MAX_WINDOW(15) - 1 center
     private var flowXPool: [MTLBuffer] = []
@@ -109,6 +115,26 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
             self.vstFusePipeline = nil
             self.vstFinalizePipeline = nil
         }
+    }
+
+    /// Wait for a previously committed async GPU temporal filter to complete.
+    /// Must be called after commitOnly=true filterFrameRingVSTBilateral before
+    /// accessing the output buffer. Returns false on GPU error or timeout.
+    func waitGPU() -> Bool {
+        guard let sem = asyncSemaphore else { return true }
+        if sem.wait(timeout: .now() + 30.0) == .timedOut {
+            fputs("GPU TIMEOUT [async filterFrameRingVSTBilateral]\n", stderr)
+            asyncSemaphore = nil
+            return false
+        }
+        asyncSemaphore = nil
+        // Perform deferred memcpy now that GPU is done
+        if let out = asyncOutput, let outputBuf, asyncFramePixels > 0 {
+            let src = outputBuf.contents().bindMemory(to: UInt16.self, capacity: asyncFramePixels)
+            memcpy(out, src, asyncFramePixels * MemoryLayout<UInt16>.size)
+            asyncOutput = nil
+        }
+        return asyncSucceeded
     }
 
     /// Commit command buffer with error logging and timeout.
@@ -651,7 +677,8 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
         blackLevel: Float = 6032.0,
         shotGain: Float = 180.0,
         readNoise: Float = 616.0,
-        sharedOutputIndex: Int = -1  // ≥0: write to sharedOutputBufs[idx], skip memcpy
+        sharedOutputIndex: Int = -1,  // ≥0: write to sharedOutputBufs[idx], skip memcpy
+        commitOnly: Bool = false       // true: commit GPU work and return; call waitGPU() later
     ) {
         ensureBuffers(width: width, height: height)
 
@@ -780,6 +807,25 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
             enc.setBytes(&params, length: MemoryLayout<VSTBilateralParams>.size, index: 5)
             enc.dispatchThreads(gridSize, threadsPerThreadgroup: threadgroupSize)
             enc.endEncoding()
+        }
+
+        if commitOnly && sharedOutputIndex < 0 {
+            // Async path: commit GPU work, return immediately.
+            // Caller must call waitGPU() before reading output.
+            let sem = DispatchSemaphore(value: 0)
+            asyncSemaphore = sem
+            asyncSucceeded = true
+            asyncOutput = output
+            asyncFramePixels = framePixels
+            cmdBuf.addCompletedHandler { [weak self] cb in
+                if cb.status == .error {
+                    self?.asyncSucceeded = false
+                    fputs("GPU ERROR [async filterFrameRingVSTBilateral]: \(cb.error?.localizedDescription ?? "unknown")\n", stderr)
+                }
+                sem.signal()
+            }
+            cmdBuf.commit()
+            return
         }
 
         if !commitAndWait(cmdBuf, label: "filterFrameRingVSTBilateral") {

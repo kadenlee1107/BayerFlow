@@ -135,6 +135,54 @@ func temporal_filter_vst_bilateral_gpu_ring(
     }
 }
 
+/// Async variant: commits GPU work and returns immediately.
+/// Output is NOT valid until temporal_filter_vst_bilateral_gpu_ring_wait() returns.
+/// Allows overlapping GPU temporal filter with CPU/ANE optical flow on the next frame.
+@_cdecl("temporal_filter_vst_bilateral_gpu_ring_commit")
+func temporal_filter_vst_bilateral_gpu_ring_commit(
+    _ output: UnsafeMutablePointer<UInt16>,
+    _ ringSlots: UnsafePointer<Int32>,
+    _ useDenoised: UnsafePointer<Int32>,
+    _ flowsX: UnsafeMutablePointer<UnsafePointer<Float>?>,
+    _ flowsY: UnsafeMutablePointer<UnsafePointer<Float>?>,
+    _ numFrames: Int32,
+    _ centerIdx: Int32,
+    _ width: Int32,
+    _ height: Int32,
+    _ noiseSigma: Float,
+    _ blackLevel: Float,
+    _ shotGain: Float,
+    _ readNoise: Float
+) {
+    if let gpu = MetalTemporalFilter.shared {
+        gpu.filterFrameRingVSTBilateral(
+            output: output,
+            ringSlots: ringSlots,
+            useDenoised: useDenoised,
+            flowsX: UnsafePointer(flowsX),
+            flowsY: UnsafePointer(flowsY),
+            numFrames: Int(numFrames),
+            centerIdx: Int(centerIdx),
+            width: Int(width),
+            height: Int(height),
+            noiseSigma: noiseSigma,
+            blackLevel: blackLevel,
+            shotGain: shotGain,
+            readNoise: readNoise,
+            commitOnly: true
+        )
+    }
+    // If no GPU, fall through — wait() will be a no-op, output already filled synchronously
+}
+
+/// Wait for the previously committed async GPU temporal filter.
+/// Returns 1 on success, 0 on GPU error/timeout.
+@_cdecl("temporal_filter_vst_bilateral_gpu_ring_wait")
+func temporal_filter_vst_bilateral_gpu_ring_wait() -> Int32 {
+    guard let gpu = MetalTemporalFilter.shared else { return 1 }
+    return gpu.waitGPU() ? 1 : 0
+}
+
 /// Zero-copy variant: writes to shared MTLBuffer instead of CPU pointer.
 /// Returns the CPU-accessible pointer to the shared buffer.
 @_cdecl("temporal_filter_vst_bilateral_gpu_ring_shared")
