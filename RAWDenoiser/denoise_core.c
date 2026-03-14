@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <limits.h>
 #include <sys/time.h>
 #include <time.h>
 #include <sys/stat.h>
@@ -437,7 +438,13 @@ done:
 /* ---- Frame Pipeline Infrastructure ---- */
 
 #define MAX_WINDOW 16
-#define MAX_OF_RADIUS MAX_WINDOW  /* Use full window */
+#define MAX_OF_RADIUS MAX_WINDOW  /* Outer limit for flow storage */
+#define OF_COMPUTE_RADIUS 2       /* Compute real Vision OF only for dist ≤ 2; scale for farther.
+                                   * Reduces Vision calls from ~14 to 4 (nearest 2 in each direction).
+                                   * flow(N→N±k) ≈ (k/2) × flow(N→N±2): valid because (a) optical
+                                   * flow is temporally smooth for the motion we encounter, and (b)
+                                   * the bilateral range kernel already downweights distant frames
+                                   * with large flow, so approximate flows for far frames are fine. */
 
 typedef struct {
     pthread_mutex_t mutex;
@@ -527,10 +534,12 @@ static void *of_thread_func(void *arg) {
         double t0 = timer_now();
         int err = 0;
 
-        /* Collect eligible neighbors for batch OF (skip center + distant) */
+        /* Collect eligible neighbors for batch OF.
+         * Only compute real Vision OF for dist ≤ OF_COMPUTE_RADIUS; far neighbors
+         * get scaled flow after the batch call (see below). */
         const uint16_t *batch_nbrs[MAX_WINDOW];
         float *batch_fx[MAX_WINDOW], *batch_fy[MAX_WINDOW];
-        int batch_idx[MAX_WINDOW]; /* original index for each batch entry */
+        int batch_idx[MAX_WINDOW];
         int batch_n = 0;
 
         for (int i = 0; i < ctx->frames_loaded; i++) {
@@ -547,11 +556,13 @@ static void *of_thread_func(void *arg) {
             }
             ctx->fx_out[i] = ctx->fx_pool[i];
             ctx->fy_out[i] = ctx->fy_pool[i];
-            batch_nbrs[batch_n] = ctx->view_green[i];
-            batch_fx[batch_n] = ctx->fx_out[i];
-            batch_fy[batch_n] = ctx->fy_out[i];
-            batch_idx[batch_n] = i;
-            batch_n++;
+            if (dist <= OF_COMPUTE_RADIUS) {
+                batch_nbrs[batch_n] = ctx->view_green[i];
+                batch_fx[batch_n]   = ctx->fx_out[i];
+                batch_fy[batch_n]   = ctx->fy_out[i];
+                batch_idx[batch_n]  = i;
+                batch_n++;
+            }
         }
 
         if (batch_n > 0) {
@@ -559,6 +570,35 @@ static void *of_thread_func(void *arg) {
                                            batch_nbrs, batch_n,
                                            ctx->green_w, ctx->green_h,
                                            batch_fx, batch_fy);
+        }
+
+        /* Scale flow for far neighbors from nearest computed OF in same direction.
+         * flow(N→N±k) ≈ (k / nearest_dist) × flow(N→N±nearest_dist). */
+        size_t npix_of = (size_t)ctx->green_w * ctx->green_h;
+        for (int i = 0; i < ctx->frames_loaded; i++) {
+            if (i == ctx->center_idx || !ctx->fx_out[i]) continue;
+            int dist = abs(i - ctx->center_idx);
+            if (dist <= OF_COMPUTE_RADIUS) continue;
+            /* Find nearest computed neighbor in same direction */
+            int sign = (i > ctx->center_idx) ? 1 : -1;
+            int ref_i = -1;
+            int best_dist = INT_MAX;
+            for (int b = 0; b < batch_n; b++) {
+                int bj = batch_idx[b];
+                if ((bj - ctx->center_idx) * sign <= 0) continue;
+                int bd = abs(bj - ctx->center_idx);
+                if (bd < best_dist) { best_dist = bd; ref_i = bj; }
+            }
+            if (ref_i < 0 || !ctx->fx_out[ref_i]) {
+                memset(ctx->fx_out[i], 0, npix_of * sizeof(float));
+                memset(ctx->fy_out[i], 0, npix_of * sizeof(float));
+            } else {
+                float scale = (float)dist / (float)best_dist;
+                for (size_t p = 0; p < npix_of; p++) {
+                    ctx->fx_out[i][p] = ctx->fx_out[ref_i][p] * scale;
+                    ctx->fy_out[i][p] = ctx->fy_out[ref_i][p] * scale;
+                }
+            }
         }
         ctx->t_accum += timer_now() - t0;
 
@@ -2082,6 +2122,7 @@ int denoise_file(
                 {
                     const uint16_t *b_nbrs[MAX_WINDOW];
                     float *b_fx[MAX_WINDOW], *b_fy[MAX_WINDOW];
+                    int b_idx[MAX_WINDOW];
                     int b_n = 0;
                     for (int i = 0; i < frames_loaded; i++) {
                         if (i == center) { of_fx_sets[ping][i] = NULL; of_fy_sets[ping][i] = NULL; continue; }
@@ -2089,14 +2130,42 @@ int denoise_file(
                         if (dist > MAX_OF_RADIUS) { of_fx_sets[ping][i] = NULL; of_fy_sets[ping][i] = NULL; continue; }
                         of_fx_sets[ping][i] = flow_pool_fx[ping][i];
                         of_fy_sets[ping][i] = flow_pool_fy[ping][i];
-                        b_nbrs[b_n] = view_greens_0[i];
-                        b_fx[b_n] = of_fx_sets[ping][i];
-                        b_fy[b_n] = of_fy_sets[ping][i];
-                        b_n++;
+                        if (dist <= OF_COMPUTE_RADIUS) {
+                            b_nbrs[b_n] = view_greens_0[i];
+                            b_fx[b_n] = of_fx_sets[ping][i];
+                            b_fy[b_n] = of_fy_sets[ping][i];
+                            b_idx[b_n] = i;
+                            b_n++;
+                        }
                     }
                     if (b_n > 0)
                         compute_apple_flow_batch(view_greens_0[center], b_nbrs, b_n,
                                                  green_w, green_h, b_fx, b_fy);
+                    /* Scale flow for far neighbors */
+                    size_t npix_sc = (size_t)green_w * green_h;
+                    for (int i = 0; i < frames_loaded; i++) {
+                        if (i == center || !of_fx_sets[ping][i]) continue;
+                        int dist = abs(i - center);
+                        if (dist <= OF_COMPUTE_RADIUS) continue;
+                        int sign = (i > center) ? 1 : -1;
+                        int ref_i = -1, best_dist = INT_MAX;
+                        for (int b = 0; b < b_n; b++) {
+                            int bj = b_idx[b];
+                            if ((bj - center) * sign <= 0) continue;
+                            int bd = abs(bj - center);
+                            if (bd < best_dist) { best_dist = bd; ref_i = bj; }
+                        }
+                        if (ref_i < 0 || !of_fx_sets[ping][ref_i]) {
+                            memset(of_fx_sets[ping][i], 0, npix_sc * sizeof(float));
+                            memset(of_fy_sets[ping][i], 0, npix_sc * sizeof(float));
+                        } else {
+                            float scale = (float)dist / (float)best_dist;
+                            for (size_t p = 0; p < npix_sc; p++) {
+                                of_fx_sets[ping][i][p] = of_fx_sets[ping][ref_i][p] * scale;
+                                of_fy_sets[ping][i][p] = of_fy_sets[ping][ref_i][p] * scale;
+                            }
+                        }
+                    }
                 }
                 t_accum_flow += timer_now() - t0;
                 if (ret != DENOISE_OK) break;
@@ -2990,25 +3059,55 @@ int denoise_preview_frame(
         float **fy = (float **)calloc(loaded, sizeof(float *));
         if (!fx || !fy) { free(fx); free(fy); ret = DENOISE_ERR_ALLOC; goto prev_cleanup; }
 
-        /* Batch OF with MAX_OF_RADIUS skip */
+        /* Batch OF: compute real flow only for dist ≤ OF_COMPUTE_RADIUS; scale for farther */
         const uint16_t *batch_nbrs[MAX_WINDOW];
         float *batch_fx[MAX_WINDOW], *batch_fy[MAX_WINDOW];
+        int batch_idx_p[MAX_WINDOW];
         int batch_n = 0;
         for (int i = 0; i < loaded; i++) {
-            if (i == center) continue;
+            if (i == center) { fx[i] = NULL; fy[i] = NULL; continue; }
             int dist = abs(i - center);
             if (dist > MAX_OF_RADIUS) { fx[i] = NULL; fy[i] = NULL; continue; }
             fx[i] = (float *)calloc(n_flow, sizeof(float));
             fy[i] = (float *)calloc(n_flow, sizeof(float));
             if (!fx[i] || !fy[i]) { ret = DENOISE_ERR_ALLOC; break; }
-            batch_nbrs[batch_n] = green_frames[i];
-            batch_fx[batch_n] = fx[i];
-            batch_fy[batch_n] = fy[i];
-            batch_n++;
+            if (dist <= OF_COMPUTE_RADIUS) {
+                batch_nbrs[batch_n] = green_frames[i];
+                batch_fx[batch_n] = fx[i];
+                batch_fy[batch_n] = fy[i];
+                batch_idx_p[batch_n] = i;
+                batch_n++;
+            }
         }
         if (ret == DENOISE_OK && batch_n > 0)
             compute_apple_flow_batch(green_frames[center], batch_nbrs, batch_n,
                                      green_w, green_h, batch_fx, batch_fy);
+        /* Scale flow for far neighbors */
+        if (ret == DENOISE_OK) {
+            for (int i = 0; i < loaded; i++) {
+                if (i == center || !fx[i]) continue;
+                int dist = abs(i - center);
+                if (dist <= OF_COMPUTE_RADIUS) continue;
+                int sign = (i > center) ? 1 : -1;
+                int ref_i = -1, best_dist = INT_MAX;
+                for (int b = 0; b < batch_n; b++) {
+                    int bj = batch_idx_p[b];
+                    if ((bj - center) * sign <= 0) continue;
+                    int bd = abs(bj - center);
+                    if (bd < best_dist) { best_dist = bd; ref_i = bj; }
+                }
+                if (ref_i < 0 || !fx[ref_i]) {
+                    memset(fx[i], 0, n_flow * sizeof(float));
+                    memset(fy[i], 0, n_flow * sizeof(float));
+                } else {
+                    float scale = (float)dist / (float)best_dist;
+                    for (int p = 0; p < n_flow; p++) {
+                        fx[i][p] = fx[ref_i][p] * scale;
+                        fy[i][p] = fy[ref_i][p] * scale;
+                    }
+                }
+            }
+        }
 
         if (ret == DENOISE_OK) {
             int tf_mode = cfg->temporal_filter_mode;

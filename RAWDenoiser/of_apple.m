@@ -114,7 +114,9 @@ int compute_apple_flow(const uint16_t *frame1, const uint16_t *frame2,
 
 /* Batch OF: compute flow from center to multiple neighbors.
  * Center frame is downsampled and converted to CVPixelBuffer ONCE,
- * then reused for all neighbor pairs. Temp buffers are pre-allocated. */
+ * then reused for all neighbor pairs. Processes serially — Vision OF
+ * runs on ANE which cannot parallelize concurrent requests from one process;
+ * serializing avoids ANE contention and thread-spawn overhead. */
 int compute_apple_flow_batch(const uint16_t *center,
                              const uint16_t *const *neighbors, int num_neighbors,
                              int green_w, int green_h,
@@ -123,8 +125,8 @@ int compute_apple_flow_batch(const uint16_t *center,
     if (num_neighbors <= 0) return 0;
 
     /* Downsample center to half-res — 4× fewer pixels for Vision,
-     * ~4× faster OF with AccuracyHigh. Flow is inherently smooth so 2× upscale
-     * back to green resolution is lossless for denoising purposes. */
+     * faster OF. Flow is inherently smooth so 2× upscale back to green
+     * resolution is lossless for denoising purposes. */
     int hw, hh;
     uint16_t *half_center = downsample_2x(center, green_w, green_h, &hw, &hh);
     if (!half_center) return -1;
@@ -133,46 +135,44 @@ int compute_apple_flow_batch(const uint16_t *center,
     free(half_center);
     if (!pb_center) return -1;
 
-    /* Pre-allocate temp buffers for half-res flow readback (reused per pair) */
     size_t half_npix = (size_t)hw * hh;
-    float *half_fx = (float *)malloc(half_npix * sizeof(float));
-    float *half_fy = (float *)malloc(half_npix * sizeof(float));
-    if (!half_fx || !half_fy) {
-        free(half_fx); free(half_fy);
-        CFRelease(pb_center);
-        return -1;
-    }
 
-    /* Pre-allocate neighbor downsample buffer (reused per pair) */
+    /* Single reusable scratch buffers — no need to pre-allocate per-neighbor */
     uint16_t *half_nbr = (uint16_t *)malloc(half_npix * sizeof(uint16_t));
-    if (!half_nbr) {
-        free(half_fx); free(half_fy); free(half_nbr);
+    float    *tmp_fx   = (float *)malloc(half_npix * sizeof(float));
+    float    *tmp_fy   = (float *)malloc(half_npix * sizeof(float));
+    if (!half_nbr || !tmp_fx || !tmp_fy) {
+        free(half_nbr); free(tmp_fx); free(tmp_fy);
         CFRelease(pb_center);
         return -1;
     }
 
     int err = 0;
+    size_t full_npix = (size_t)green_w * green_h;
+
     for (int n = 0; n < num_neighbors; n++) {
-        /* Downsample neighbor to half-res into pre-allocated buffer */
-        for (int y = 0; y < hh; y++) {
-            const uint16_t *r0 = neighbors[n] + (size_t)(y * 2) * green_w;
-            const uint16_t *r1 = r0 + green_w;
-            for (int x = 0; x < hw; x++) {
-                int x2 = x * 2;
-                half_nbr[y * hw + x] = (uint16_t)(((uint32_t)r0[x2] + r0[x2+1]
-                                                    + r1[x2] + r1[x2+1] + 2) >> 2);
-            }
-        }
-
-        CVPixelBufferRef pb_nbr = make_pixel_buffer(half_nbr, hw, hh);
-        if (!pb_nbr) { err = -1; continue; }
-
         @autoreleasepool {
+            /* Downsample neighbor to half-res */
+            for (int y = 0; y < hh; y++) {
+                const uint16_t *r0 = neighbors[n] + (size_t)(y * 2) * green_w;
+                const uint16_t *r1 = r0 + green_w;
+                for (int x = 0; x < hw; x++) {
+                    int x2 = x * 2;
+                    half_nbr[y * hw + x] = (uint16_t)(((uint32_t)r0[x2] + r0[x2+1]
+                                                       + r1[x2] + r1[x2+1] + 2) >> 2);
+                }
+            }
+
+            CVPixelBufferRef pb_nbr = make_pixel_buffer(half_nbr, hw, hh);
+            if (!pb_nbr) { err = -1; continue; }
+
             NSError *error = nil;
             VNGenerateOpticalFlowRequest *request =
                 [[VNGenerateOpticalFlowRequest alloc]
                  initWithTargetedCVPixelBuffer:pb_nbr options:@{}];
-            request.computationAccuracy = VNGenerateOpticalFlowRequestComputationAccuracyHigh;
+            /* Medium: faster than High, sufficient accuracy for denoising.
+             * Our bilateral range kernel absorbs sub-pixel flow imprecision. */
+            request.computationAccuracy = VNGenerateOpticalFlowRequestComputationAccuracyMedium;
 
             VNImageRequestHandler *handler =
                 [[VNImageRequestHandler alloc]
@@ -182,17 +182,14 @@ int compute_apple_flow_batch(const uint16_t *center,
             CFRelease(pb_nbr);
 
             if (!ok || error || !request.results || request.results.count == 0) {
-                /* Zero the output flow on failure */
-                size_t npix = (size_t)green_w * green_h;
-                memset(fx_out[n], 0, npix * sizeof(float));
-                memset(fy_out[n], 0, npix * sizeof(float));
+                memset(fx_out[n], 0, full_npix * sizeof(float));
+                memset(fy_out[n], 0, full_npix * sizeof(float));
                 err = -1;
                 continue;
             }
 
             VNPixelBufferObservation *obs = request.results[0];
             CVPixelBufferRef flowBuf = obs.pixelBuffer;
-
             CVPixelBufferLockBaseAddress(flowBuf, kCVPixelBufferLock_ReadOnly);
 
             int fw  = (int)CVPixelBufferGetWidth(flowBuf);
@@ -203,28 +200,23 @@ int compute_apple_flow_batch(const uint16_t *center,
             int copy_w = fw < hw ? fw : hw;
             int copy_h = fh2 < hh ? fh2 : hh;
 
-            /* Read half-res flow into pre-allocated temp buffers */
-            memset(half_fx, 0, half_npix * sizeof(float));
-            memset(half_fy, 0, half_npix * sizeof(float));
+            memset(tmp_fx, 0, half_npix * sizeof(float));
+            memset(tmp_fy, 0, half_npix * sizeof(float));
             for (int y = 0; y < copy_h; y++) {
                 const float *row = (const float *)(base + (size_t)y * bpr);
                 for (int x = 0; x < copy_w; x++) {
-                    half_fx[y * fw + x] = row[x * 2 + 0];
-                    half_fy[y * fw + x] = row[x * 2 + 1];
+                    tmp_fx[y * fw + x] = row[x * 2 + 0];
+                    tmp_fy[y * fw + x] = row[x * 2 + 1];
                 }
             }
-
             CVPixelBufferUnlockBaseAddress(flowBuf, kCVPixelBufferLock_ReadOnly);
 
-            /* Bilinear upscale flow from half-res to full green resolution (2×) */
-            upscale_flow_2x(half_fx, half_fy, fw, fh2,
+            upscale_flow_2x(tmp_fx, tmp_fy, fw, fh2,
                             fx_out[n], fy_out[n], green_w, green_h);
         }
     }
 
-    free(half_fx);
-    free(half_fy);
-    free(half_nbr);
+    free(half_nbr); free(tmp_fx); free(tmp_fy);
     CFRelease(pb_center);
     return err;
 }
