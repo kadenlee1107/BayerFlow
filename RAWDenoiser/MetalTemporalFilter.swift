@@ -122,7 +122,7 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
     /// accessing the output buffer. Returns false on GPU error or timeout.
     func waitGPU() -> Bool {
         guard let sem = asyncSemaphore else { return true }
-        if sem.wait(timeout: .now() + 30.0) == .timedOut {
+        if sem.wait(timeout: .now() + 120.0) == .timedOut {
             fputs("GPU TIMEOUT [async filterFrameRingVSTBilateral]\n", stderr)
             asyncSemaphore = nil
             return false
@@ -139,7 +139,7 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
 
     /// Commit command buffer with error logging and timeout.
     /// Returns true on success, false on GPU error or timeout.
-    private func commitAndWait(_ cmdBuf: MTLCommandBuffer, label: String, timeoutSeconds: Double = 30.0) -> Bool {
+    private func commitAndWait(_ cmdBuf: MTLCommandBuffer, label: String, timeoutSeconds: Double = 120.0) -> Bool {
         let semaphore = DispatchSemaphore(value: 0)
         var succeeded = true
 
@@ -176,6 +176,7 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
 
         if centerBuf == nil || guideBuf == nil || valSumBuf == nil || wSumBuf == nil || outputBuf == nil {
             fputs("GPU OOM: failed to allocate core buffers (\(frameBytes)B frame + \(floatBytes)B float)\n", stderr)
+            return
         }
 
         // LUT buffers (constant size)
@@ -678,7 +679,8 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
         shotGain: Float = 180.0,
         readNoise: Float = 616.0,
         sharedOutputIndex: Int = -1,  // ≥0: write to sharedOutputBufs[idx], skip memcpy
-        commitOnly: Bool = false       // true: commit GPU work and return; call waitGPU() later
+        commitOnly: Bool = false,      // true: commit GPU work and return; call waitGPU() later
+        maxNeighbors: Int = 14        // motion-adaptive GPU window (default: all neighbors)
     ) {
         ensureBuffers(width: width, height: height)
 
@@ -702,23 +704,30 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
         let centerRingBuf = useDenoised[centerIdx] != 0
             ? denoisedRing[centerSlot] : frameRing[centerSlot]
 
-        // Resolve neighbor ring buffers + upload flow fields
+        // Resolve neighbor ring buffers + upload flow fields.
+        // Iterate by increasing distance from center so maxNeighbors always
+        // captures the closest (most useful) neighbors first.
         let flowByteSize = greenPixels * MemoryLayout<Float>.size
         var neighborBufs: [MTLBuffer] = []
         var neighborCount = 0
+        let limit = min(maxNeighbors, flowXPool.count)
 
-        for f in 0..<numFrames {
-            if f == centerIdx { continue }
-            guard let fx = flowsX[f], let fy = flowsY[f],
-                  neighborCount < flowXPool.count else { continue }
+        for dist in 1...(numFrames / 2 + 1) {
+            if neighborCount >= limit { break }
+            for sign in [-1, 1] {
+                if neighborCount >= limit { break }
+                let f = centerIdx + dist * sign
+                guard f >= 0 && f < numFrames else { continue }
+                guard let fx = flowsX[f], let fy = flowsY[f] else { continue }
 
-            let slot = Int(ringSlots[f])
-            let buf = useDenoised[f] != 0 ? denoisedRing[slot] : frameRing[slot]
-            neighborBufs.append(buf)
+                let slot = Int(ringSlots[f])
+                let buf = useDenoised[f] != 0 ? denoisedRing[slot] : frameRing[slot]
+                neighborBufs.append(buf)
 
-            memcpy(flowXPool[neighborCount].contents(), fx, flowByteSize)
-            memcpy(flowYPool[neighborCount].contents(), fy, flowByteSize)
-            neighborCount += 1
+                memcpy(flowXPool[neighborCount].contents(), fx, flowByteSize)
+                memcpy(flowYPool[neighborCount].contents(), fy, flowByteSize)
+                neighborCount += 1
+            }
         }
 
         var params = VSTBilateralParams(

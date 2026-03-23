@@ -31,6 +31,7 @@
 #ifdef __ARM_NEON__
 #include <arm_neon.h>
 #endif
+#include <stdatomic.h>
 
 /* ---- Per-stage timing ---- */
 static double timer_now(void) {
@@ -39,6 +40,8 @@ static double timer_now(void) {
     return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
+/* Timing accumulators — diagnostics only, not correctness-critical.
+ * Single-writer (main denoise loop is sequential per stage), safe for single-clip use. */
 static double t_accum_flow     = 0;
 static double t_accum_temporal = 0;
 static double t_accum_spatial  = 0;
@@ -1518,6 +1521,16 @@ int denoise_file(
     int width      = reader.width;
     int height     = reader.height;
     int num_frames = reader.frame_count;
+
+    /* Validate dimensions */
+    if (width < 2 || height < 2 || width > 16384 || height > 16384 ||
+        width % 2 != 0 || height % 2 != 0) {
+        fprintf(stderr, "denoise_file: invalid dimensions %dx%d (must be even, 2-16384)\n",
+                width, height);
+        frame_reader_close(&reader);
+        return DENOISE_ERR_INPUT_OPEN;
+    }
+
     size_t frame_pixels = (size_t)width * height;
     size_t frame_bytes  = frame_pixels * sizeof(uint16_t);
 

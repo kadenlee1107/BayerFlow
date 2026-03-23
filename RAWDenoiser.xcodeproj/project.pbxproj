@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3BB902DFBE6B060B13EBD680 /* ProExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93BE3D03DCC9A298465EA0F1 /* ProExtension.framework */; };
+		46AA8B39CF3DAF9EAB49C1F4 /* ExtensionRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BF5833B8E08F68877F64BD2 /* ExtensionRootView.swift */; };
+		90B40CDFA2A0151FD8112399 /* WorkflowExtensionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEECD38AD441F3F9C97FE41B /* WorkflowExtensionViewController.swift */; };
+		B0D37000B9C57B1A34A32603 /* ProExtensionHost.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E0418CB96696F8D7669AC99E /* ProExtensionHost.framework */; };
 		E3A7614D2F521362006B8241 /* MetalPerformanceShadersGraph.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3A7614C2F521362006B8241 /* MetalPerformanceShadersGraph.framework */; };
 		E3A7614F2F521383006B8241 /* MetalPerformanceShaders.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3A7614E2F521383006B8241 /* MetalPerformanceShaders.framework */; };
 		E3B0A3532F4C0FBD002A5EBA /* Vision.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A3522F4C0FBD002A5EBA /* Vision.framework */; };
@@ -15,9 +19,43 @@
 		E3B0A3592F4C0FE1002A5EBA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A3582F4C0FE1002A5EBA /* AVFoundation.framework */; };
 		E3B0A35B2F4D0001002A5EBA /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A35A2F4D0001002A5EBA /* Metal.framework */; };
 		E3B0A35C2F4E0001002A5EBA /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3B0A35D2F4E0001002A5EBA /* CoreML.framework */; };
+		EB2ADC89F001CD960D83BFB8 /* BayerFlowExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = FDE7C4C8572D2C390934FE27 /* BayerFlowExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FFD8FC9C51ADCCF29BA6240C /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CB3D7A2263D291248AC3E714 /* Cocoa.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		1A5D1FD074A9A1AE48C79381 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E3B0A3182F4C0D64002A5EBA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D88B3572B5829B571BCF793B;
+			remoteInfo = BayerFlowExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		443B2F84CF35AAAEF8B44FDF /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				EB2ADC89F001CD960D83BFB8 /* BayerFlowExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		15678BD17CD2412AE396304A /* BayerFlowExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BayerFlowExtension.entitlements; sourceTree = "<group>"; };
+		2BF5833B8E08F68877F64BD2 /* ExtensionRootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExtensionRootView.swift; sourceTree = "<group>"; };
+		43B54DE5FA027172D46F0600 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		45F7E43A69A3C40144D15CBF /* BayerFlowExtension-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "BayerFlowExtension-Bridging-Header.h"; sourceTree = "<group>"; };
+		93BE3D03DCC9A298465EA0F1 /* ProExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ProExtension.framework; path = FCPFrameworks/ProExtension.framework; sourceTree = SOURCE_ROOT; };
+		AEECD38AD441F3F9C97FE41B /* WorkflowExtensionViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkflowExtensionViewController.swift; sourceTree = "<group>"; };
+		CB3D7A2263D291248AC3E714 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		E0418CB96696F8D7669AC99E /* ProExtensionHost.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ProExtensionHost.framework; path = FCPFrameworks/ProExtensionHost.framework; sourceTree = SOURCE_ROOT; };
 		E3A7614C2F521362006B8241 /* MetalPerformanceShadersGraph.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShadersGraph.framework; path = System/Library/Frameworks/MetalPerformanceShadersGraph.framework; sourceTree = SDKROOT; };
 		E3A7614E2F521383006B8241 /* MetalPerformanceShaders.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShaders.framework; path = System/Library/Frameworks/MetalPerformanceShaders.framework; sourceTree = SDKROOT; };
 		E3B0A3202F4C0D64002A5EBA /* BayerFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BayerFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -27,17 +65,28 @@
 		E3B0A3582F4C0FE1002A5EBA /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		E3B0A35A2F4D0001002A5EBA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		E3B0A35D2F4E0001002A5EBA /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
+		FDE7C4C8572D2C390934FE27 /* BayerFlowExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BayerFlowExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E3B0A3222F4C0D64002A5EBA /* RAWDenoiser */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = RAWDenoiser;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0F17556530B5BA7DE54FC918 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FFD8FC9C51ADCCF29BA6240C /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E3B0A31D2F4C0D64002A5EBA /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -56,12 +105,34 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		409EA28B18CFAC3908CDCC13 /* BayerFlowExtension */ = {
+			isa = PBXGroup;
+			children = (
+				2BF5833B8E08F68877F64BD2 /* ExtensionRootView.swift */,
+				AEECD38AD441F3F9C97FE41B /* WorkflowExtensionViewController.swift */,
+				43B54DE5FA027172D46F0600 /* Info.plist */,
+				15678BD17CD2412AE396304A /* BayerFlowExtension.entitlements */,
+				45F7E43A69A3C40144D15CBF /* BayerFlowExtension-Bridging-Header.h */,
+			);
+			name = BayerFlowExtension;
+			path = BayerFlowExtension;
+			sourceTree = "<group>";
+		};
+		B73BC88D78E82A80CFD9F9CD /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				CB3D7A2263D291248AC3E714 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
 		E3B0A3172F4C0D64002A5EBA = {
 			isa = PBXGroup;
 			children = (
 				E3B0A3222F4C0D64002A5EBA /* RAWDenoiser */,
 				E3B0A3512F4C0FBC002A5EBA /* Frameworks */,
 				E3B0A3212F4C0D64002A5EBA /* Products */,
+				409EA28B18CFAC3908CDCC13 /* BayerFlowExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -69,6 +140,7 @@
 			isa = PBXGroup;
 			children = (
 				E3B0A3202F4C0D64002A5EBA /* BayerFlow.app */,
+				FDE7C4C8572D2C390934FE27 /* BayerFlowExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -84,6 +156,9 @@
 				E3B0A3582F4C0FE1002A5EBA /* AVFoundation.framework */,
 				E3B0A35A2F4D0001002A5EBA /* Metal.framework */,
 				E3B0A35D2F4E0001002A5EBA /* CoreML.framework */,
+				B73BC88D78E82A80CFD9F9CD /* OS X */,
+				93BE3D03DCC9A298465EA0F1 /* ProExtension.framework */,
+				E0418CB96696F8D7669AC99E /* ProExtensionHost.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -91,6 +166,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		D88B3572B5829B571BCF793B /* BayerFlowExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 84ABE545E6A77FE689782557 /* Build configuration list for PBXNativeTarget "BayerFlowExtension" */;
+			buildPhases = (
+				0EB7C2AF5A384E4137D6993E /* Sources */,
+				0F17556530B5BA7DE54FC918 /* Frameworks */,
+				88237F65FA4CC52997F60833 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BayerFlowExtension;
+			productName = BayerFlowExtension;
+			productReference = FDE7C4C8572D2C390934FE27 /* BayerFlowExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		E3B0A31F2F4C0D64002A5EBA /* RAWDenoiser */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E3B0A32B2F4C0D65002A5EBA /* Build configuration list for PBXNativeTarget "RAWDenoiser" */;
@@ -98,17 +190,17 @@
 				E3B0A31C2F4C0D64002A5EBA /* Sources */,
 				E3B0A31D2F4C0D64002A5EBA /* Frameworks */,
 				E3B0A31E2F4C0D64002A5EBA /* Resources */,
+				443B2F84CF35AAAEF8B44FDF /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				E3F001C058C908BF4C0A9F28 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				E3B0A3222F4C0D64002A5EBA /* RAWDenoiser */,
 			);
 			name = RAWDenoiser;
-			packageProductDependencies = (
-			);
 			productName = RAWDenoiser;
 			productReference = E3B0A3202F4C0D64002A5EBA /* BayerFlow.app */;
 			productType = "com.apple.product-type.application";
@@ -144,11 +236,19 @@
 			projectRoot = "";
 			targets = (
 				E3B0A31F2F4C0D64002A5EBA /* RAWDenoiser */,
+				D88B3572B5829B571BCF793B /* BayerFlowExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		88237F65FA4CC52997F60833 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E3B0A31E2F4C0D64002A5EBA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -159,6 +259,15 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		0EB7C2AF5A384E4137D6993E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				46AA8B39CF3DAF9EAB49C1F4 /* ExtensionRootView.swift in Sources */,
+				90B40CDFA2A0151FD8112399 /* WorkflowExtensionViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E3B0A31C2F4C0D64002A5EBA /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -168,7 +277,72 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		E3F001C058C908BF4C0A9F28 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = BayerFlowExtension;
+			target = D88B3572B5829B571BCF793B /* BayerFlowExtension */;
+			targetProxy = 1A5D1FD074A9A1AE48C79381 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		4074298AA3AEEF298D69E68A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BayerFlowExtension/BayerFlowExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 485A8X67J3;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/FCPFrameworks",
+				);
+				INFOPLIST_FILE = BayerFlowExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = (
+									);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayerflow.app.fcpextension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "BayerFlowExtension/BayerFlowExtension-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		CE2CF8E405BE3E0F70ED45C9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BayerFlowExtension/BayerFlowExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 485A8X67J3;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/FCPFrameworks",
+				);
+				INFOPLIST_FILE = BayerFlowExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = (
+									);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayerflow.app.fcpextension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "BayerFlowExtension/BayerFlowExtension-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		E3B0A3292F4C0D65002A5EBA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -379,6 +553,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		84ABE545E6A77FE689782557 /* Build configuration list for PBXNativeTarget "BayerFlowExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4074298AA3AEEF298D69E68A /* Release */,
+				CE2CF8E405BE3E0F70ED45C9 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		E3B0A31B2F4C0D64002A5EBA /* Build configuration list for PBXProject "RAWDenoiser" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -127,6 +127,7 @@ static float estimate_sigma_mad(const float *coeff, int count) {
 
     /* Compute absolute values */
     float *abs_vals = (float *)malloc(count * sizeof(float));
+    if (!abs_vals) return 0.0f;
     for (int i = 0; i < count; i++) {
         abs_vals[i] = fabsf(coeff[i]);
     }
@@ -175,6 +176,7 @@ static void denoise_subchannel(float *buf, int w, int h, float noise_sigma,
     int stride = w;
     int max_dim = (w > h) ? w : h;
     float *tmp = (float *)malloc(max_dim * sizeof(float));
+    if (!tmp) return;
 
     /* Forward wavelet transform (multi-level) */
     int cw = w, ch = h;
@@ -204,6 +206,7 @@ static void denoise_subchannel(float *buf, int w, int h, float noise_sigma,
             /* Collect detail coefficients for this sub-band */
             int band_size = hw * hh;
             float *band_data = (float *)malloc(band_size * sizeof(float));
+            if (!band_data) continue;
             for (int y = 0; y < hh; y++) {
                 memcpy(band_data + y * hw,
                        buf + (by + y) * stride + bx,
@@ -279,6 +282,11 @@ static void denoise_subchannel_ti(float *result, const float *input,
     int pixels = w * h;
     float *shifted = (float *)malloc(pixels * sizeof(float));
     float *accum = (float *)calloc(pixels, sizeof(float));
+    if (!shifted || !accum) {
+        free(shifted); free(accum);
+        memcpy(result, input, pixels * sizeof(float));
+        return;
+    }
 
     /* 4 shifts for cycle spinning */
     int shifts[4][2] = {{0,0}, {1,0}, {0,1}, {1,1}};
@@ -314,6 +322,11 @@ static void denoise_subchannel_ti(float *result, const float *input,
 
     /* Build count map (how many shifts contributed to each pixel) */
     float *count = (float *)calloc(pixels, sizeof(float));
+    if (!count) {
+        memcpy(result, input, pixels * sizeof(float));
+        free(shifted); free(accum);
+        return;
+    }
     for (int s = 0; s < 4; s++) {
         int sx = shifts[s][0];
         int sy = shifts[s][1];

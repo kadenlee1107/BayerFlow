@@ -161,8 +161,10 @@ MotionVector *motion_estimate(const uint16_t *ref_green, const uint16_t *cur_gre
 
     uint16_t *ref1 = downsample_2x(ref_green, w0, h0, &w1, &h1);
     uint16_t *cur1 = downsample_2x(cur_green, w0, h0, &w1, &h1);
+    if (!ref1 || !cur1) { free(ref1); free(cur1); return NULL; }
     uint16_t *ref2 = downsample_2x(ref1, w1, h1, &w2, &h2);
     uint16_t *cur2 = downsample_2x(cur1, w1, h1, &w2, &h2);
+    if (!ref2 || !cur2) { free(ref1); free(cur1); free(ref2); free(cur2); return NULL; }
 
     int grid_w = green_w / block_size;
     int grid_h = green_h / block_size;

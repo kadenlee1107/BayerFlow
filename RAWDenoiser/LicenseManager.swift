@@ -95,7 +95,7 @@ final class LicenseManager: ObservableObject {
         let signatureBytes = keyData.prefix(64)
 
         do {
-            let pubKeyData = Data(hexString: Self.publicKeyHex)!
+            guard let pubKeyData = Data(hexString: Self.publicKeyHex) else { return false }
             let publicKey  = try Curve25519.Signing.PublicKey(rawRepresentation: pubKeyData)
             return publicKey.isValidSignature(signatureBytes, for: emailData)
         } catch {

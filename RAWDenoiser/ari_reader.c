@@ -350,6 +350,11 @@ int ari_reader_open(AriReader *r, const char *path) {
 
     r->width = r->info.width;
     r->height = r->info.height;
+    if (r->width < 2 || r->height < 2 || r->width > 16384 || r->height > 16384) {
+        fprintf(stderr, "ari_reader: invalid dimensions %dx%d\n", r->width, r->height);
+        ari_reader_close(r);
+        return -1;
+    }
     r->bits_per_pixel = r->info.bits_per_pixel;
     r->frames_read = 0;
 

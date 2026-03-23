@@ -1,0 +1,26 @@
+# Build artifacts
+*.o
+*.dSYM/
+DerivedData/
+
+# Test binaries (compiled from test_*.c)
+test_braw_*
+test_dct_*
+test_decode_*
+test_ffmpeg_*
+test_flat_*
+test_idct_*
+test_native_dec
+test_rice_*
+test_vlc_*
+
+# macOS
+.DS_Store
+
+# Xcode user data
+xcuserdata/
+
+# Temp files
+*.swp
+*.swo
+*~

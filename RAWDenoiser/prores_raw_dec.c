@@ -545,6 +545,8 @@ static int decode_tile(const uint8_t *tile_data, int tile_size,
 int prores_raw_decode_frame(const uint8_t *frame_data, int frame_size,
                             uint16_t *bayer_out, int width, int height) {
     if (frame_size < 96) return -1;
+    if (width < 2 || height < 2 || width > 16384 || height > 16384) return -1;
+    if (width % 2 != 0 || height % 2 != 0) return -1;
 
     /* Frame header: size(4) + 'prrf'(4) + header_len(2) + payload(86) = 96 bytes */
     if (memcmp(frame_data + 4, "prrf", 4) != 0) {

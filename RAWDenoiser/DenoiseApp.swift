@@ -66,6 +66,8 @@ struct RAWDenoiserApp: App {
         if UserDefaults.standard.bool(forKey: "trainingDataConsent") {
             TrainingDataUploader.shared.uploadPendingBatches()
         }
+        // Listen for FCP Workflow Extension denoise requests
+        FCPExtensionBridge.shared.startListening()
     }
 
     var body: some Scene {

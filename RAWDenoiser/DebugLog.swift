@@ -2,7 +2,7 @@ import Foundation
 
 /// Debug-only logging. Compiles to nothing in Release builds.
 @inline(__always)
-func debugLog(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+nonisolated func debugLog(_ items: Any..., separator: String = " ", terminator: String = "\n") {
     #if DEBUG
     let output = items.map { "\($0)" }.joined(separator: separator)
     Swift.print(output, terminator: terminator)
