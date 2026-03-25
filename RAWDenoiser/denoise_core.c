@@ -33,6 +33,22 @@
 #endif
 #include <stdatomic.h>
 
+/* ---- Optical flow backend selection ---- */
+/* Set to 1 to use Metal GPU block matching instead of Apple Vision ANE.
+ * Metal OF is ~100x faster per pair but slightly less accurate at sub-pixel level.
+ * The bilateral denoiser compensates via multi-hypothesis sampling (M=4). */
+#ifndef USE_METAL_OF
+#define USE_METAL_OF 1
+#endif
+
+#if USE_METAL_OF
+#define OF_FUNC         compute_metal_flow
+#define OF_BATCH_FUNC   compute_metal_flow_batch
+#else
+#define OF_FUNC         compute_apple_flow
+#define OF_BATCH_FUNC   compute_apple_flow_batch
+#endif
+
 /* ---- Per-stage timing ---- */
 static double timer_now(void) {
     struct timeval tv;
@@ -420,7 +436,7 @@ int analyze_motion(
         extract_green_channel(frame_b, width, height, green_b);
 
         /* Compute optical flow */
-        if (compute_apple_flow(green_a, green_b, green_w, green_h, fx, fy) != 0) {
+        if (OF_FUNC(green_a, green_b, green_w, green_h, fx, fy) != 0) {
             pair_mags[pairs_done++] = 0;
         } else {
             /* Mean flow magnitude */
@@ -584,7 +600,7 @@ static void *of_thread_func(void *arg) {
         }
 
         if (batch_n > 0) {
-            err = compute_apple_flow_batch(ctx->view_green[ctx->center_idx],
+            err = OF_BATCH_FUNC(ctx->view_green[ctx->center_idx],
                                            batch_nbrs, batch_n,
                                            ctx->green_w, ctx->green_h,
                                            batch_fx, batch_fy);
@@ -1373,7 +1389,7 @@ static int denoise_file_rgb(
                 flow_y[i] = flow_y[i];
                 continue;
             }
-            compute_apple_flow(luma_ring[center], luma_ring[i],
+            OF_FUNC(luma_ring[center], luma_ring[i],
                                width, height,
                                flow_x[i], flow_y[i]);
         }
@@ -2193,7 +2209,7 @@ int denoise_file(
                         }
                     }
                     if (b_n > 0)
-                        compute_apple_flow_batch(view_greens_0[center], b_nbrs, b_n,
+                        OF_BATCH_FUNC(view_greens_0[center], b_nbrs, b_n,
                                                  green_w, green_h, b_fx, b_fy);
                     /* Scale flow for far neighbors */
                     size_t npix_sc = (size_t)green_w * green_h;
@@ -2296,7 +2312,7 @@ int denoise_file(
                         if (i == center) { of_fx_sets[ping][i] = NULL; of_fy_sets[ping][i] = NULL; continue; }
                         of_fx_sets[ping][i] = flow_pool_fx[ping][i];
                         of_fy_sets[ping][i] = flow_pool_fy[ping][i];
-                        compute_apple_flow(bootstrap_center_green, bs_greens[i],
+                        OF_FUNC(bootstrap_center_green, bs_greens[i],
                                            green_w, green_h,
                                            of_fx_sets[ping][i], of_fy_sets[ping][i]);
                     }
@@ -2638,7 +2654,7 @@ int denoise_file(
                         if (i == center) { of_fx_sets[ping][i] = NULL; of_fy_sets[ping][i] = NULL; continue; }
                         of_fx_sets[ping][i] = flow_pool_fx[ping][i];
                         of_fy_sets[ping][i] = flow_pool_fy[ping][i];
-                        compute_apple_flow(bootstrap_center_green, bs_greens[i],
+                        OF_FUNC(bootstrap_center_green, bs_greens[i],
                                            green_w, green_h,
                                            of_fx_sets[ping][i], of_fy_sets[ping][i]);
                     }
@@ -3187,7 +3203,7 @@ int denoise_preview_frame(
             }
         }
         if (ret == DENOISE_OK && batch_n > 0)
-            compute_apple_flow_batch(green_frames[center], batch_nbrs, batch_n,
+            OF_BATCH_FUNC(green_frames[center], batch_nbrs, batch_n,
                                      green_w, green_h, batch_fx, batch_fy);
         /* Scale flow for far neighbors */
         if (ret == DENOISE_OK) {
@@ -3616,7 +3632,7 @@ int denoise_parameter_sweep(
         fx[i] = (float *)calloc(n_flow, sizeof(float));
         fy[i] = (float *)calloc(n_flow, sizeof(float));
         if (fx[i] && fy[i])
-            compute_apple_flow(green_frames[center], green_frames[i],
+            OF_FUNC(green_frames[center], green_frames[i],
                                green_w, green_h, fx[i], fy[i]);
     }
 
@@ -3691,7 +3707,7 @@ int denoise_parameter_sweep(
                 sfx[i] = (float *)calloc(n_flow, sizeof(float));
                 sfy[i] = (float *)calloc(n_flow, sizeof(float));
                 if (sfx[i] && sfy[i])
-                    compute_apple_flow(green_frames[fc], green_frames[i],
+                    OF_FUNC(green_frames[fc], green_frames[i],
                                        green_w, green_h, sfx[i], sfy[i]);
             }
 
@@ -3885,7 +3901,7 @@ int denoise_technique_sweep(
             fx[i] = (float *)calloc(n_flow, sizeof(float));
             fy[i] = (float *)calloc(n_flow, sizeof(float));
             if (fx[i] && fy[i])
-                compute_apple_flow(green_frames[fc], green_frames[i],
+                OF_FUNC(green_frames[fc], green_frames[i],
                                    green_w, green_h, fx[i], fy[i]);
         }
         fprintf(stderr, "  OF computed in %.2fs\n", timer_now() - t_of);
