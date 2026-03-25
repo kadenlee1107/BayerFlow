@@ -443,6 +443,26 @@ inline float warp_bayer(uint rx, uint ry, float fdx, float fdy,
          +         fx  *         fy  * s11;
 }
 
+// ============================================================
+//  Half-precision (FP16) helper functions
+//  Apple GPUs have 2x float16 ALU throughput vs float32.
+//  Accumulation stays float32; intermediates use half.
+// ============================================================
+
+inline half vst_fwd_h(half v, half bl, half sg, half rn) {
+    half rv = rn * rn;
+    half sig = max(v - bl, half(0.0h));
+    half x = sig / sg + half(0.375h) + rv / (sg * sg);
+    return half(2.0h) * sqrt(max(x, half(0.0h)));
+}
+
+constant half2 VST_HYPS_H[4] = {
+    half2(0.0h, 0.0h),
+    half2(0.5h, 0.0h),
+    half2(0.0h, 0.5h),
+    half2(-0.5h, -0.5h)
+};
+
 // ---- Pass 1a: Collect z-values from non-rejected neighbors ----
 // Dispatched once per neighbor. Accumulates z_sum, z_count, max_flow.
 kernel void vst_bilateral_collect(
@@ -711,6 +731,250 @@ kernel void vst_bilateral_finalize(
     // Weights were computed in z-space so bandwidth remains signal-adaptive.
     float total_w  = center_w + nb_wsum;
     float total_wv = center_w * cv + nb_wzsum;   // cv is raw center pixel value
+    float v_est = total_wv / total_w;
+
+    float result = clamp(v_est, 0.0f, 65535.0f);
+    output[idx] = uint16_t(result + 0.5f);
+}
+
+
+// ============================================================
+//  FP16 VST Bilateral Kernels
+//  Identical logic to fp32 versions above, with intermediate
+//  computations in half precision for 2x ALU throughput.
+//  Accumulation buffers (val_sum, w_sum, z_sum, z_count) stay
+//  float32 to preserve precision across 14+ neighbor additions.
+// ============================================================
+
+// ---- Pass 1a FP16 ----
+kernel void vst_bilateral_collect_fp16(
+    device const uint16_t *center_frame   [[buffer(0)]],
+    device const uint16_t *neighbor_frame [[buffer(1)]],
+    device const float    *flow_x         [[buffer(2)]],
+    device const float    *flow_y         [[buffer(3)]],
+    device float          *z_sum          [[buffer(4)]],
+    device float          *z_count        [[buffer(5)]],
+    device float          *max_flow_buf   [[buffer(6)]],
+    constant VSTBilateralParams &params   [[buffer(7)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint rx = gid.x, ry = gid.y;
+    uint w = params.width, h = params.height;
+    if (rx >= w || ry >= h) return;
+
+    uint gx = rx >> 1, gy = ry >> 1, gw = w >> 1;
+    half fdx = half(flow_x[gy * gw + gx]);
+    half fdy = half(flow_y[gy * gw + gx]);
+
+    // Warp in float (pixel reads are memory-bound), cast result to half
+    float v_f = warp_bayer(rx, ry, float(fdx), float(fdy), neighbor_frame, w, h);
+    if (v_f < 0.0f) return;
+
+    uint idx = ry * w + rx;
+    half bl = half(params.black_level);
+    half sg = half(params.shot_gain);
+    half rn = half(params.read_noise);
+    half z_c = vst_fwd_h(half(center_frame[idx]), bl, sg, rn);
+    half z_n = vst_fwd_h(half(v_f), bl, sg, rn);
+
+    if (abs(z_n - z_c) > half(params.z_reject)) return;
+
+    half diff1 = z_n - z_c;
+    half h_val = half(params.h);
+    half w1 = exp(-diff1 * diff1 / (half(2.0h) * h_val * h_val));
+
+    // Accumulate in float32
+    z_sum[idx]   += float(w1) * float(z_n);
+    z_count[idx] += float(w1);
+
+    half fm = sqrt(fdx * fdx + fdy * fdy);
+    max_flow_buf[idx] = max(max_flow_buf[idx], float(fm));
+}
+
+// ---- Pass 1b FP16 ----
+kernel void vst_bilateral_preestimate_fp16(
+    device const uint16_t *center_frame  [[buffer(0)]],
+    device float          *z_sum         [[buffer(1)]],
+    device float          *z_count       [[buffer(2)]],
+    device float          *z_preest      [[buffer(3)]],
+    constant VSTBilateralParams &params  [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint rx = gid.x, ry = gid.y;
+    uint w = params.width, h = params.height;
+    if (rx >= w || ry >= h) return;
+
+    uint idx = ry * w + rx;
+    float zs = z_sum[idx];
+    float zc = z_count[idx];
+    half z_center = vst_fwd_h(half(center_frame[idx]), half(params.black_level),
+                               half(params.shot_gain), half(params.read_noise));
+
+    // Division stays float for precision
+    z_preest[idx] = (zs + float(z_center)) / (zc + 1.0f);
+
+    z_sum[idx]   = 0.0f;
+    z_count[idx] = 0.0f;
+}
+
+// ---- Pass 2 FP16 (hottest kernel — dispatched per neighbor × 14) ----
+kernel void vst_bilateral_fuse_fp16(
+    device const uint16_t *center_frame   [[buffer(0)]],
+    device const uint16_t *neighbor_frame [[buffer(1)]],
+    device const float    *flow_x         [[buffer(2)]],
+    device const float    *flow_y         [[buffer(3)]],
+    device float          *val_sum        [[buffer(4)]],
+    device float          *w_sum          [[buffer(5)]],
+    device const float    *z_preest       [[buffer(6)]],
+    constant VSTBilateralParams &params   [[buffer(7)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint rx = gid.x, ry = gid.y;
+    uint w = params.width, h = params.height;
+    if (rx >= w || ry >= h) return;
+
+    uint gx = rx >> 1, gy = ry >> 1, gw = w >> 1;
+    half fdx = half(flow_x[gy * gw + gx]);
+    half fdy = half(flow_y[gy * gw + gx]);
+
+    uint idx = ry * w + rx;
+    half cv_raw = half(center_frame[idx]);
+    half z_ref = half(z_preest[idx]);
+
+    half bl = half(params.black_level);
+    half sg = half(params.shot_gain);
+    half rn = half(params.read_noise);
+
+    half h_val = half(params.h);
+    half neg_inv_2h2 = half(-1.0h) / (half(2.0h) * h_val * h_val);
+
+    // Flow attenuation in half
+    half flow_mag2 = fdx * fdx + fdy * fdy;
+    half w_flow = exp(-flow_mag2 / half(params.flow_sigma2));
+
+    // ---- Structural term in half ----
+    half w_struct = half(1.0h);
+    {
+        half vst_jac = half(2.0h) / max(z_ref * sg, half(0.01h));
+
+        half grad_cx = half(0.0h), grad_cy = half(0.0h);
+        if (rx >= 2 && rx + 2 < w) {
+            grad_cx = (half(center_frame[ry * w + rx + 2])
+                     - half(center_frame[ry * w + rx - 2])) * half(0.5h) * vst_jac;
+        }
+        if (ry >= 2 && ry + 2 < h) {
+            grad_cy = (half(center_frame[(ry + 2) * w + rx])
+                     - half(center_frame[(ry - 2) * w + rx])) * half(0.5h) * vst_jac;
+        }
+
+        int wx = int(rx) + int(round(float(fdx))) * 2;
+        int wy = int(ry) + int(round(float(fdy))) * 2;
+        half grad_nx = half(0.0h), grad_ny = half(0.0h);
+
+        if (wx >= 2 && wx + 2 < int(w) && wy >= 0 && wy < int(h)) {
+            grad_nx = (half(neighbor_frame[wy * int(w) + wx + 2])
+                     - half(neighbor_frame[wy * int(w) + wx - 2])) * half(0.5h) * vst_jac;
+        }
+        if (wy >= 2 && wy + 2 < int(h) && wx >= 0 && wx < int(w)) {
+            grad_ny = (half(neighbor_frame[(wy + 2) * int(w) + wx])
+                     - half(neighbor_frame[(wy - 2) * int(w) + wx])) * half(0.5h) * vst_jac;
+        }
+
+        half gd_x = grad_nx - grad_cx;
+        half gd_y = grad_ny - grad_cy;
+        half grad_diff_sq = gd_x * gd_x + gd_y * gd_y;
+        w_struct = exp(-grad_diff_sq / half(params.sigma_g2));
+    }
+
+    // ---- Multi-hypothesis sampling (M=4) in half ----
+    half best_w = half(-1.0h);
+    float best_v = 0.0f;  // pixel value stays float (range 0-65535)
+
+    for (int m = 0; m < 4; m++) {
+        half hdx = fdx + VST_HYPS_H[m].x;
+        half hdy = fdy + VST_HYPS_H[m].y;
+
+        float v_f = warp_bayer(rx, ry, float(hdx), float(hdy), neighbor_frame, w, h);
+        if (v_f < 0.0f) continue;
+
+        half z = vst_fwd_h(half(v_f), bl, sg, rn);
+        half diff = z - z_ref;
+
+        if (abs(diff) > half(params.z_reject)) continue;
+
+        half w_photo = exp(diff * diff * neg_inv_2h2);
+        half total = w_photo * w_struct * w_flow;
+
+        if (total > best_w) {
+            best_w = total;
+            best_v = v_f;  // keep pixel value in float
+        }
+    }
+
+    if (best_w <= half(0.0h)) return;
+
+    // Texture confidence — variance math in float (tsq can overflow half)
+    half flow_mag = sqrt(flow_mag2);
+    if (cv_raw > half(10000.0h) && flow_mag > half(0.3h)) {
+        float tsum = float(cv_raw), tsq = float(cv_raw) * float(cv_raw), tn = 1.0f;
+        if (rx >= 2) { float tv = float(center_frame[ry * w + rx - 2]); tsum += tv; tsq += tv * tv; tn += 1.0f; }
+        if (rx + 2 < w) { float tv = float(center_frame[ry * w + rx + 2]); tsum += tv; tsq += tv * tv; tn += 1.0f; }
+        if (ry >= 2) { float tv = float(center_frame[(ry - 2) * w + rx]); tsum += tv; tsq += tv * tv; tn += 1.0f; }
+        if (ry + 2 < h) { float tv = float(center_frame[(ry + 2) * w + rx]); tsum += tv; tsq += tv * tv; tn += 1.0f; }
+
+        float tvar = tsq / tn - (tsum / tn) * (tsum / tn);
+        half tstd = half(sqrt(max(tvar, 0.0f)));
+        half noise_std = half(sqrt(float(rn) * float(rn) + float(sg) * max(float(cv_raw) - float(bl), 0.0f)));
+        half tratio = tstd / max(noise_std, half(1.0h));
+        half tex_conf = clamp((tratio - half(0.8h)) / half(1.5h), half(0.1h), half(1.0h));
+        half motion_scale = clamp(flow_mag / half(2.0h), half(0.0h), half(1.0h));
+        tex_conf = half(1.0h) - (half(1.0h) - tex_conf) * motion_scale;
+        best_w *= tex_conf;
+    }
+
+    // Accumulate in float32
+    val_sum[idx] += float(best_w) * best_v;
+    w_sum[idx]   += float(best_w);
+}
+
+// ---- Pass 3 FP16 ----
+kernel void vst_bilateral_finalize_fp16(
+    device const uint16_t *center_frame  [[buffer(0)]],
+    device const float    *val_sum       [[buffer(1)]],
+    device const float    *w_sum         [[buffer(2)]],
+    device const float    *max_flow_buf  [[buffer(3)]],
+    device uint16_t       *output        [[buffer(4)]],
+    constant VSTBilateralParams &params  [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint rx = gid.x, ry = gid.y;
+    uint w = params.width, h = params.height;
+    if (rx >= w || ry >= h) return;
+
+    uint idx = ry * w + rx;
+    float cv = float(center_frame[idx]);
+    float nb_wsum = w_sum[idx];
+    float nb_wzsum = val_sum[idx];
+
+    if (nb_wsum <= 0.0f) {
+        output[idx] = uint16_t(cv);
+        return;
+    }
+
+    // Adaptive center weight floor (half for the simple math)
+    half mf = half(max_flow_buf[idx]);
+    half center_floor = half(0.3h) + half(0.3h) * min(mf / half(3.0h), half(1.0h));
+
+    float center_w = 1.0f;
+    float center_frac = center_w / (center_w + nb_wsum);
+    if (center_frac < float(center_floor)) {
+        float scale = center_w * (1.0f - float(center_floor)) / (float(center_floor) * nb_wsum);
+        nb_wsum  *= scale;
+        nb_wzsum *= scale;
+    }
+
+    float total_w  = center_w + nb_wsum;
+    float total_wv = center_w * cv + nb_wzsum;
     float v_est = total_wv / total_w;
 
     float result = clamp(v_est, 0.0f, 65535.0f);

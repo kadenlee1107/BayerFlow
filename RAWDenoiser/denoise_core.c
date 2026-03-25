@@ -1129,7 +1129,14 @@ static void clear_flow_set(float **fx, float **fy, int n) {
  * Also returns the average flow magnitude via out_avg_mag (if non-NULL).
  * Returns 0.3 for static scenes (neighbors dominate).
  * For motion, ramps gently to 0.8 — the 5×5 NLM patches handle ghosting
- * rejection, so center weight stays low for maximum temporal averaging. */
+ * rejection, so center weight stays low for maximum temporal averaging.
+ *
+ * Scene cut detection: when a hard cut occurs (different shot), OF produces
+ * unreliable flow — either very large magnitudes or near-zero (background
+ * match on unrelated content). We detect this via flow confidence: if most
+ * neighbors have extreme avg flow (>20px), it's likely a scene cut. In that
+ * case, suppress temporal averaging (center_weight → 0.95) to prevent
+ * ghosting from the old scene bleeding into the new one. */
 static float compute_adaptive_center_weight(
     const float **flows_x, const float **flows_y,
     int num_frames, int center_idx,
@@ -1139,20 +1146,30 @@ static float compute_adaptive_center_weight(
     int n_flow = green_w * green_h;
     double total_mag = 0;
     int count = 0;
+    int scene_cut_neighbors = 0;  /* neighbors with extreme flow */
 
     for (int i = 0; i < num_frames; i++) {
         if (i == center_idx || !flows_x[i] || !flows_y[i]) continue;
         /* Sample every 16th pixel for speed (full resolution not needed) */
         double frame_mag = 0;
         int samples = 0;
+        int extreme_pixels = 0;
         for (int j = 0; j < n_flow; j += 16) {
             float fx = flows_x[i][j];
             float fy = flows_y[i][j];
-            frame_mag += sqrtf(fx * fx + fy * fy);
+            float mag = sqrtf(fx * fx + fy * fy);
+            frame_mag += mag;
+            if (mag > 30.0f) extreme_pixels++;
             samples++;
         }
         if (samples > 0) {
-            total_mag += frame_mag / samples;
+            double avg = frame_mag / samples;
+            total_mag += avg;
+            /* Scene cut heuristic: >60% of sampled pixels have extreme flow
+             * AND average flow exceeds 30px (implausible for real camera motion).
+             * Both conditions must be true to avoid false triggers on fast pans. */
+            if ((float)extreme_pixels / samples > 0.6f && avg > 30.0f)
+                scene_cut_neighbors++;
             count++;
         }
     }
@@ -1165,7 +1182,16 @@ static float compute_adaptive_center_weight(
     float avg_mag = (float)(total_mag / count);
     if (out_avg_mag) *out_avg_mag = avg_mag;
 
-    /* Ramp: 0 px → 0.3, ≥3 px → 0.6
+    /* Scene cut: majority of neighbors look like different content.
+     * Suppress temporal averaging to prevent cross-scene ghosting.
+     * Use 0.95 (not 1.0) to allow slight smoothing for noise. */
+    if (scene_cut_neighbors > count / 2) {
+        fprintf(stderr, "denoise_core: SCENE CUT detected (avg_flow=%.1f, %d/%d extreme neighbors)\n",
+                avg_mag, scene_cut_neighbors, count);
+        return 0.95f;
+    }
+
+    /* Normal ramp: 0 px → 0.3, ≥3 px → 0.6
      * Wider ramp (3px instead of 2px) smooths the transition between
      * heavy temporal averaging (static) and motion-limited averaging.
      * Ghost suppression handled by adaptive dark-pixel boost in
@@ -2383,13 +2409,10 @@ int denoise_file(
                     next_fl = frames_loaded;
                 }
 
-                /* Wait for CNN(0) to finish before kicking OF — serialize GPU work
-                 * to avoid OOM when CNN (Restormer) + OF run concurrently */
-                pthread_mutex_lock(&sync.mutex);
-                while (!sync.cnn_done && !sync.error)
-                    pthread_cond_wait(&sync.cnn_done_cond, &sync.mutex);
-                if (sync.error && ret == DENOISE_OK) ret = sync.error;
-                pthread_mutex_unlock(&sync.mutex);
+                /* CNN runs on GPU (MPS), OF runs on ANE — independent hardware.
+                 * No need to wait for CNN before kicking OF; they run in parallel.
+                 * Previous comment mentioned OOM risk, but CNN (~600MB) + OF (~22MB)
+                 * = ~650MB peak, well within M-series shared memory. */
 
                 /* Kick OF(1) in background — use denoised greens for past neighbors */
                 int np = 1 - ping;

@@ -40,6 +40,13 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
     private let vstFusePipeline: MTLComputePipelineState?
     private let vstFinalizePipeline: MTLComputePipelineState?
 
+    // FP16 VST+Bilateral pipeline states (2x ALU throughput on Apple GPU)
+    private let vstCollectFP16Pipeline: MTLComputePipelineState?
+    private let vstPreestimateFP16Pipeline: MTLComputePipelineState?
+    private let vstFuseFP16Pipeline: MTLComputePipelineState?
+    private let vstFinalizeFP16Pipeline: MTLComputePipelineState?
+    private(set) var useFP16: Bool = true
+
     // Persistent buffers — resized per-clip, reused per-frame
     private var centerBuf: MTLBuffer?
     private var guideBuf: MTLBuffer?      // guide frame for patch matching (can differ from center)
@@ -114,6 +121,23 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
             self.vstPreestimatePipeline = nil
             self.vstFusePipeline = nil
             self.vstFinalizePipeline = nil
+        }
+
+        // FP16 VST+Bilateral pipelines (2x ALU throughput)
+        if let f1 = library.makeFunction(name: "vst_bilateral_collect_fp16"),
+           let f2 = library.makeFunction(name: "vst_bilateral_preestimate_fp16"),
+           let f3 = library.makeFunction(name: "vst_bilateral_fuse_fp16"),
+           let f4 = library.makeFunction(name: "vst_bilateral_finalize_fp16") {
+            self.vstCollectFP16Pipeline = try? device.makeComputePipelineState(function: f1)
+            self.vstPreestimateFP16Pipeline = try? device.makeComputePipelineState(function: f2)
+            self.vstFuseFP16Pipeline = try? device.makeComputePipelineState(function: f3)
+            self.vstFinalizeFP16Pipeline = try? device.makeComputePipelineState(function: f4)
+        } else {
+            self.vstCollectFP16Pipeline = nil
+            self.vstPreestimateFP16Pipeline = nil
+            self.vstFuseFP16Pipeline = nil
+            self.vstFinalizeFP16Pipeline = nil
+            self.useFP16 = false
         }
     }
 
@@ -751,10 +775,16 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
             return
         }
 
+        // Select fp16 or fp32 pipeline
+        let collectPipe = (useFP16 && vstCollectFP16Pipeline != nil) ? vstCollectFP16Pipeline! : vstCollectPipeline
+        let preestPipe  = (useFP16 && vstPreestimateFP16Pipeline != nil) ? vstPreestimateFP16Pipeline! : vstPreestimatePipeline
+        let fusePipe    = (useFP16 && vstFuseFP16Pipeline != nil) ? vstFuseFP16Pipeline! : vstFusePipeline
+        let finPipe     = (useFP16 && vstFinalizeFP16Pipeline != nil) ? vstFinalizeFP16Pipeline! : vstFinalizePipeline
+
         // Phase 1a: Collect z-values (per-neighbor dispatches)
         if let enc = cmdBuf.makeComputeCommandEncoder() {
             for i in 0..<neighborCount {
-                enc.setComputePipelineState(vstCollectPipeline)
+                enc.setComputePipelineState(collectPipe)
                 enc.setBuffer(centerRingBuf,    offset: 0, index: 0)
                 enc.setBuffer(neighborBufs[i],  offset: 0, index: 1)
                 enc.setBuffer(flowXPool[i],     offset: 0, index: 2)
@@ -770,7 +800,7 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
 
         // Phase 1b: Preestimate (also zeros z_sum/z_count for Phase 2)
         if let enc = cmdBuf.makeComputeCommandEncoder() {
-            enc.setComputePipelineState(vstPreestimatePipeline)
+            enc.setComputePipelineState(preestPipe)
             enc.setBuffer(centerRingBuf,    offset: 0, index: 0)
             enc.setBuffer(valSumBuf,        offset: 0, index: 1)  // z_sum in, zeroed on out
             enc.setBuffer(wSumBuf,          offset: 0, index: 2)  // z_count in, zeroed on out
@@ -783,7 +813,7 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
         // Phase 2: Fuse with structural + self-guided + multi-hypothesis
         if let enc = cmdBuf.makeComputeCommandEncoder() {
             for i in 0..<neighborCount {
-                enc.setComputePipelineState(vstFusePipeline)
+                enc.setComputePipelineState(fusePipe)
                 enc.setBuffer(centerRingBuf,    offset: 0, index: 0)
                 enc.setBuffer(neighborBufs[i],  offset: 0, index: 1)
                 enc.setBuffer(flowXPool[i],     offset: 0, index: 2)
@@ -807,7 +837,7 @@ nonisolated final class MetalTemporalFilter: @unchecked Sendable {
         }
 
         if let enc = cmdBuf.makeComputeCommandEncoder() {
-            enc.setComputePipelineState(vstFinalizePipeline)
+            enc.setComputePipelineState(finPipe)
             enc.setBuffer(centerRingBuf,    offset: 0, index: 0)
             enc.setBuffer(valSumBuf,        offset: 0, index: 1)
             enc.setBuffer(wSumBuf,          offset: 0, index: 2)
