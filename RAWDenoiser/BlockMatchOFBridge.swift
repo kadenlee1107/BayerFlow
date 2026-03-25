@@ -1,7 +1,6 @@
 import Foundation
 
 /// C bridge for Metal block matching optical flow.
-/// Drop-in replacement for compute_apple_flow_batch() in of_apple.m.
 
 @_cdecl("compute_metal_flow")
 func compute_metal_flow(
@@ -18,8 +17,7 @@ func compute_metal_flow(
     return 0
 }
 
-/// Batch version: compute flow from center to multiple neighbors.
-/// Builds center pyramid ONCE, then processes each neighbor.
+/// Batch version: ALL neighbors in a single GPU command buffer.
 @_cdecl("compute_metal_flow_batch")
 func compute_metal_flow_batch(
     _ center: UnsafePointer<UInt16>,
@@ -33,18 +31,28 @@ func compute_metal_flow_batch(
 
     let w = Int(green_w)
     let h = Int(green_h)
+    let n = Int(num_neighbors)
 
     // Build center pyramid once
     of.buildCenterPyramid(center: center, width: w, height: h)
 
-    // Process each neighbor using pre-built center pyramid
-    for i in 0..<Int(num_neighbors) {
+    // Collect valid neighbors
+    var validNbrs: [UnsafePointer<UInt16>] = []
+    var validFx: [UnsafeMutablePointer<Float>] = []
+    var validFy: [UnsafeMutablePointer<Float>] = []
+    for i in 0..<n {
         guard let nbr = neighbors[i],
               let fx = fx_out[i],
               let fy = fy_out[i] else { continue }
-
-        of.computeFlowForNeighbor(neighbor: nbr, width: w, height: h,
-                                   flowX: fx, flowY: fy)
+        validNbrs.append(nbr)
+        validFx.append(fx)
+        validFy.append(fy)
     }
+
+    if validNbrs.isEmpty { return 0 }
+
+    // Process all neighbors in a single GPU command buffer
+    of.computeFlowBatch(neighbors: validNbrs, width: w, height: h,
+                         flowXs: validFx, flowYs: validFy)
     return 0
 }
