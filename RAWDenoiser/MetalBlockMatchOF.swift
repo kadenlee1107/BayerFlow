@@ -83,11 +83,55 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
     private var flowYBuf: MTLBuffer?
     private var centerPyramidBuilt = false
 
+    /// Downsample a frame 2x on CPU before uploading to GPU.
+    /// This halves the OF resolution (720×380 instead of 1440×760),
+    /// reducing block count 4x. Flow accuracy is ~1px at green-res,
+    /// which the bilateral denoiser handles via multi-hypothesis M=4.
+    private var halfBuf: [UInt16] = []
+    private var halfWidth: Int = 0
+    private var halfHeight: Int = 0
+
+    private func downsample2x(_ src: UnsafePointer<UInt16>, _ w: Int, _ h: Int) -> UnsafePointer<UInt16> {
+        halfWidth = w / 2
+        halfHeight = h / 2
+        let n = halfWidth * halfHeight
+        if halfBuf.count < n { halfBuf = [UInt16](repeating: 0, count: n) }
+        for y in 0..<halfHeight {
+            let r0 = y * 2, r1 = r0 + 1
+            for x in 0..<halfWidth {
+                let x0 = x * 2, x1 = x0 + 1
+                let v = (UInt32(src[r0 * w + x0]) + UInt32(src[r0 * w + x1])
+                        + UInt32(src[r1 * w + x0]) + UInt32(src[r1 * w + x1]) + 2) >> 2
+                halfBuf[y * halfWidth + x] = UInt16(v)
+            }
+        }
+        return halfBuf.withUnsafeBufferPointer { $0.baseAddress! }
+    }
+
+    private var halfBuf2: [UInt16] = []
+    private func downsample2xNeighbor(_ src: UnsafePointer<UInt16>, _ w: Int, _ h: Int) -> UnsafePointer<UInt16> {
+        let hw = w / 2, hh = h / 2
+        let n = hw * hh
+        if halfBuf2.count < n { halfBuf2 = [UInt16](repeating: 0, count: n) }
+        for y in 0..<hh {
+            let r0 = y * 2, r1 = r0 + 1
+            for x in 0..<hw {
+                let x0 = x * 2, x1 = x0 + 1
+                let v = (UInt32(src[r0 * w + x0]) + UInt32(src[r0 * w + x1])
+                        + UInt32(src[r1 * w + x0]) + UInt32(src[r1 * w + x1]) + 2) >> 2
+                halfBuf2[y * hw + x] = UInt16(v)
+            }
+        }
+        return halfBuf2.withUnsafeBufferPointer { $0.baseAddress! }
+    }
+
     /// Build center pyramid once, then call computeFlowForNeighbor for each neighbor.
     func buildCenterPyramid(center: UnsafePointer<UInt16>, width: Int, height: Int) {
-        ensureBuffers(width: width, height: height)
-        let pixelBytes = width * height * MemoryLayout<UInt16>.size
-        memcpy(pyramidBufs[0][0].contents(), center, pixelBytes)
+        // Downsample to half resolution before GPU processing
+        let halfCenter = downsample2x(center, width, height)
+        ensureBuffers(width: halfWidth, height: halfHeight)
+        let pixelBytes = halfWidth * halfHeight * MemoryLayout<UInt16>.size
+        memcpy(pyramidBufs[0][0].contents(), halfCenter, pixelBytes)
 
         // Ensure flow output buffers exist
         let flowBytes = width * height * MemoryLayout<Float>.size
@@ -118,6 +162,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
     }
 
     /// Compute flow for one neighbor (center pyramid must already be built).
+    /// Input is at full green resolution, output is at full green resolution.
+    /// Internally downsamples 2x for fast block matching, upscales result.
     func computeFlowForNeighbor(
         neighbor: UnsafePointer<UInt16>,
         width: Int, height: Int,
@@ -126,8 +172,9 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
     ) {
         guard centerPyramidBuilt, let flowXBuf, let flowYBuf else { return }
 
-        let pixelBytes = width * height * MemoryLayout<UInt16>.size
-        memcpy(pyramidBufs[1][0].contents(), neighbor, pixelBytes)
+        let halfNeighbor = downsample2xNeighbor(neighbor, width, height)
+        let pixelBytes = halfWidth * halfHeight * MemoryLayout<UInt16>.size
+        memcpy(pyramidBufs[1][0].contents(), halfNeighbor, pixelBytes)
 
         guard let cmdBuf = queue.makeCommandBuffer() else { return }
         let tg = MTLSize(width: 16, height: 16, depth: 1)
@@ -194,9 +241,21 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
         cmdBuf.commit()
         cmdBuf.waitUntilCompleted()
 
-        let flowBytes = width * height * MemoryLayout<Float>.size
-        memcpy(flowX, flowXBuf.contents(), flowBytes)
-        memcpy(flowY, flowYBuf.contents(), flowBytes)
+        // Flow was computed at half resolution — upscale 2x to full green res
+        // Flow values also need 2x scale (half-res pixels → full-res pixels)
+        let halfFlowX = flowXBuf.contents().assumingMemoryBound(to: Float.self)
+        let halfFlowY = flowYBuf.contents().assumingMemoryBound(to: Float.self)
+        let hw = halfWidth, hh = halfHeight
+        for y in 0..<height {
+            let sy = min(y / 2, hh - 1)
+            for x in 0..<width {
+                let sx = min(x / 2, hw - 1)
+                let idx = y * width + x
+                let hidx = sy * hw + sx
+                flowX[idx] = halfFlowX[hidx] * 2.0  // scale displacement
+                flowY[idx] = halfFlowY[hidx] * 2.0
+            }
+        }
     }
 
     /// Compute dense optical flow from center to neighbor.
