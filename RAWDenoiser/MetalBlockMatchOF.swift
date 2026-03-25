@@ -16,7 +16,7 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
     private let interpolatePipeline: MTLComputePipelineState
     private let warpFlowPipeline: MTLComputePipelineState
 
-    private static let pyramidLevels = 5
+    private static let pyramidLevels = 3  // 3 levels sufficient: 1440→720→360
     private static let blockSize: UInt32 = 8
     /// Search range at coarsest level (exhaustive), finer levels use 3
     private static let coarseSearchRange: UInt32 = 12
