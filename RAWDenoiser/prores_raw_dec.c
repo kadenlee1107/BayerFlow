@@ -8,6 +8,9 @@
  */
 
 #include "prores_raw_dec.h"
+#ifdef __ARM_NEON__
+#include <arm_neon.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -412,8 +415,17 @@ static void idct_8x8(int32_t *block) {
 /* ---- Dequantization ---- */
 
 static void dequantize_block(int32_t *block, const int32_t *qmat) {
+#ifdef __ARM_NEON__
+    /* 64 multiplies in 16 NEON ops (4 elements per op) */
+    for (int i = 0; i < 64; i += 4) {
+        int32x4_t v = vld1q_s32(&block[i]);
+        int32x4_t q = vld1q_s32(&qmat[i]);
+        vst1q_s32(&block[i], vmulq_s32(v, q));
+    }
+#else
     for (int i = 0; i < 64; i++)
         block[i] *= qmat[i];
+#endif
 }
 
 /* ---- Bayer Reconstruction (inverse of extract_bayer_block) ---- */
@@ -423,6 +435,34 @@ static void place_bayer_block(const int32_t *block, uint16_t *dst,
     int row_offset = (component >> 1) & 1;
     int col_offset = component & 1;
 
+#ifdef __ARM_NEON__
+    int32x4_t vmin = vdupq_n_s32(4);
+    int32x4_t vmax = vdupq_n_s32(4091);
+    for (int y = 0; y < 8; y++) {
+        int dst_y = (y * 2) + row_offset;
+        /* Process 8 pixels in 2 NEON ops */
+        int32x4_t v0 = vld1q_s32(&block[y * 8]);
+        int32x4_t v1 = vld1q_s32(&block[y * 8 + 4]);
+        v0 = vmaxq_s32(vminq_s32(v0, vmax), vmin);
+        v1 = vmaxq_s32(vminq_s32(v1, vmax), vmin);
+        /* Shift left by 4 (12-bit → 16-bit) */
+        v0 = vshlq_n_s32(v0, 4);
+        v1 = vshlq_n_s32(v1, 4);
+        /* Narrow to uint16 and scatter to Bayer positions */
+        uint16x4_t h0 = vmovn_u32(vreinterpretq_u32_s32(v0));
+        uint16x4_t h1 = vmovn_u32(vreinterpretq_u32_s32(v1));
+        /* Scatter with stride 2 to Bayer grid */
+        uint16_t *row_dst = &dst[dst_y * dst_stride + col_offset];
+        row_dst[0*2] = vget_lane_u16(h0, 0);
+        row_dst[1*2] = vget_lane_u16(h0, 1);
+        row_dst[2*2] = vget_lane_u16(h0, 2);
+        row_dst[3*2] = vget_lane_u16(h0, 3);
+        row_dst[4*2] = vget_lane_u16(h1, 0);
+        row_dst[5*2] = vget_lane_u16(h1, 1);
+        row_dst[6*2] = vget_lane_u16(h1, 2);
+        row_dst[7*2] = vget_lane_u16(h1, 3);
+    }
+#else
     for (int y = 0; y < 8; y++) {
         for (int x = 0; x < 8; x++) {
             int dst_y = (y * 2) + row_offset;
@@ -435,6 +475,7 @@ static void place_bayer_block(const int32_t *block, uint16_t *dst,
             dst[dst_y * dst_stride + dst_x] = (uint16_t)(val << 4);
         }
     }
+#endif
 }
 
 /* ---- Component Decoder ---- */
