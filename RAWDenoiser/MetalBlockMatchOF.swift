@@ -38,6 +38,13 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
     }
     private var neighborSets: [NeighborBuffers] = []
 
+    /// Safe threadgroup size: clamps to grid dimensions to avoid Metal crashes.
+    private func safeThreadgroup(gridW: Int, gridH: Int, maxW: Int = 16, maxH: Int = 16) -> MTLSize {
+        return MTLSize(width: min(maxW, max(1, gridW)),
+                       height: min(maxH, max(1, gridH)),
+                       depth: 1)
+    }
+
     private init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
@@ -177,8 +184,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             enc.setBuffer(pyramidBufs[0][lvl + 1], offset: 0, index: 1)
             var srcDims = SIMD2<UInt32>(UInt32(sw), UInt32(sh))
             enc.setBytes(&srcDims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 2)
-            enc.dispatchThreads(MTLSize(width: sw/2, height: sh/2, depth: 1),
-                                threadsPerThreadgroup: tg)
+            enc.dispatchThreads(MTLSize(width: max(1, sw/2), height: max(1, sh/2), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: sw/2, gridH: sh/2))
             enc.endEncoding()
         }
         cmdBuf.commit()
@@ -213,8 +220,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             enc.setBuffer(pyramidBufs[1][lvl + 1], offset: 0, index: 1)
             var srcDims = SIMD2<UInt32>(UInt32(sw), UInt32(sh))
             enc.setBytes(&srcDims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 2)
-            enc.dispatchThreads(MTLSize(width: sw/2, height: sh/2, depth: 1),
-                                threadsPerThreadgroup: tg)
+            enc.dispatchThreads(MTLSize(width: max(1, sw/2), height: max(1, sh/2), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: sw/2, gridH: sh/2))
             enc.endEncoding()
         }
 
@@ -244,8 +251,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             enc.setBuffer(isCoarsest ? nil : mvBufs[lvl + 1], offset: 0, index: 2)
             enc.setBuffer(mvBufs[lvl], offset: 0, index: 3)
             enc.setBytes(&params, length: MemoryLayout<BlockMatchParams>.size, index: 4)
-            enc.dispatchThreads(MTLSize(width: bw, height: bh, depth: 1),
-                                threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+            enc.dispatchThreads(MTLSize(width: max(1, bw), height: max(1, bh), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: bw, gridH: bh, maxW: 8, maxH: 8))
             enc.endEncoding()
         }
 
@@ -258,8 +265,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             let bw = (width + Int(Self.blockSize) - 1) / Int(Self.blockSize)
             var dims = SIMD4<UInt32>(UInt32(width), UInt32(height), UInt32(bw), Self.blockSize)
             enc.setBytes(&dims, length: MemoryLayout<SIMD4<UInt32>>.size, index: 3)
-            enc.dispatchThreads(MTLSize(width: width, height: height, depth: 1),
-                                threadsPerThreadgroup: tg)
+            enc.dispatchThreads(MTLSize(width: max(1, width), height: max(1, height), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: width, gridH: height))
             enc.endEncoding()
         }
 
@@ -337,8 +344,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
                 enc.setBuffer(neighborSets[n].pyramidBufs[lvl + 1], offset: 0, index: 1)
                 var srcDims = SIMD2<UInt32>(UInt32(sw), UInt32(sh))
                 enc.setBytes(&srcDims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 2)
-                enc.dispatchThreads(MTLSize(width: sw/2, height: sh/2, depth: 1),
-                                    threadsPerThreadgroup: tg)
+                enc.dispatchThreads(MTLSize(width: max(1, sw/2), height: max(1, sh/2), depth: 1),
+                                    threadsPerThreadgroup: safeThreadgroup(gridW: sw/2, gridH: sh/2))
                 enc.endEncoding()
             }
         }
@@ -370,8 +377,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
                 enc.setBuffer(isCoarsest ? nil : neighborSets[n].mvBufs[lvl + 1], offset: 0, index: 2)
                 enc.setBuffer(neighborSets[n].mvBufs[lvl], offset: 0, index: 3)
                 enc.setBytes(&params, length: MemoryLayout<BlockMatchParams>.size, index: 4)
-                enc.dispatchThreads(MTLSize(width: bw, height: bh, depth: 1),
-                                    threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+                enc.dispatchThreads(MTLSize(width: max(1, bw), height: max(1, bh), depth: 1),
+                                    threadsPerThreadgroup: safeThreadgroup(gridW: bw, gridH: bh, maxW: 8, maxH: 8))
                 enc.endEncoding()
             }
         }
@@ -386,8 +393,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             let bw = (hw + Int(Self.blockSize) - 1) / Int(Self.blockSize)
             var dims = SIMD4<UInt32>(UInt32(hw), UInt32(hh), UInt32(bw), Self.blockSize)
             enc.setBytes(&dims, length: MemoryLayout<SIMD4<UInt32>>.size, index: 3)
-            enc.dispatchThreads(MTLSize(width: hw, height: hh, depth: 1),
-                                threadsPerThreadgroup: tg)
+            enc.dispatchThreads(MTLSize(width: max(1, hw), height: max(1, hh), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: hw, gridH: hh))
             enc.endEncoding()
         }
 
@@ -443,9 +450,9 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
                 enc.setBuffer(pyramidBufs[frame][lvl + 1], offset: 0, index: 1)
                 var srcDims = SIMD2<UInt32>(UInt32(sw), UInt32(sh))
                 enc.setBytes(&srcDims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 2)
-                let dw = sw / 2, dh = sh / 2
+                let dw = max(1, sw / 2), dh = max(1, sh / 2)
                 enc.dispatchThreads(MTLSize(width: dw, height: dh, depth: 1),
-                                    threadsPerThreadgroup: tg)
+                                    threadsPerThreadgroup: safeThreadgroup(gridW: dw, gridH: dh))
                 enc.endEncoding()
             }
         }
@@ -489,8 +496,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             }
             enc.setBuffer(mvBufs[lvl], offset: 0, index: 3)  // output MVs
             enc.setBytes(&params, length: MemoryLayout<BlockMatchParams>.size, index: 4)
-            enc.dispatchThreads(MTLSize(width: bw, height: bh, depth: 1),
-                                threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+            enc.dispatchThreads(MTLSize(width: max(1, bw), height: max(1, bh), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: bw, gridH: bh, maxW: 8, maxH: 8))
             enc.endEncoding()
         }
 
@@ -507,8 +514,8 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
             let bw = (width + Int(Self.blockSize) - 1) / Int(Self.blockSize)
             var dims = SIMD4<UInt32>(UInt32(width), UInt32(height), UInt32(bw), Self.blockSize)
             enc.setBytes(&dims, length: MemoryLayout<SIMD4<UInt32>>.size, index: 3)
-            enc.dispatchThreads(MTLSize(width: width, height: height, depth: 1),
-                                threadsPerThreadgroup: tg)
+            enc.dispatchThreads(MTLSize(width: max(1, width), height: max(1, height), depth: 1),
+                                threadsPerThreadgroup: safeThreadgroup(gridW: width, gridH: height))
             enc.endEncoding()
         }
 
