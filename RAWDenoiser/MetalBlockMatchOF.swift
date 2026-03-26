@@ -38,6 +38,10 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
     }
     private var neighborSets: [NeighborBuffers] = []
 
+    // Pre-allocated per-neighbor flow output buffers (avoid per-frame Metal buffer leak)
+    private var nbrFlowXBufs: [MTLBuffer] = []
+    private var nbrFlowYBufs: [MTLBuffer] = []
+
     /// Safe threadgroup size: clamps to grid dimensions to avoid Metal crashes.
     private func safeThreadgroup(gridW: Int, gridH: Int, maxW: Int = 16, maxH: Int = 16) -> MTLSize {
         return MTLSize(width: min(maxW, max(1, gridW)),
@@ -92,6 +96,15 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
 
             w /= 2
             h /= 2
+        }
+
+        // Pre-allocate per-neighbor flow output buffers
+        nbrFlowXBufs = []
+        nbrFlowYBufs = []
+        let flowBufBytes = width * height * MemoryLayout<Float>.size
+        for _ in 0..<Self.maxBatchNeighbors {
+            nbrFlowXBufs.append(device.makeBuffer(length: flowBufBytes, options: .storageModeShared)!)
+            nbrFlowYBufs.append(device.makeBuffer(length: flowBufBytes, options: .storageModeShared)!)
         }
 
         // Pre-allocate N neighbor buffer sets for batch processing
@@ -304,14 +317,7 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
 
         let hw = halfWidth, hh = halfHeight
 
-        // Ensure per-neighbor flow buffers exist
-        let flowBytes = hw * hh * MemoryLayout<Float>.size
-        var nbrFlowXBufs: [MTLBuffer] = []
-        var nbrFlowYBufs: [MTLBuffer] = []
-        for _ in 0..<count {
-            nbrFlowXBufs.append(device.makeBuffer(length: flowBytes, options: .storageModeShared)!)
-            nbrFlowYBufs.append(device.makeBuffer(length: flowBytes, options: .storageModeShared)!)
-        }
+        // Use pre-allocated per-neighbor flow buffers (no per-frame allocation)
 
         // CPU: downsample all neighbors and upload to GPU
         let pixelBytes = hw * hh * MemoryLayout<UInt16>.size
@@ -502,9 +508,13 @@ nonisolated final class MetalBlockMatchOF: @unchecked Sendable {
         }
 
         // Interpolate block MVs to dense per-pixel flow
+        // Ensure flow output buffers exist (allocated once, reused)
         let flowBytes = width * height * MemoryLayout<Float>.size
-        guard let flowXBuf = device.makeBuffer(length: flowBytes, options: .storageModeShared),
-              let flowYBuf = device.makeBuffer(length: flowBytes, options: .storageModeShared) else { return }
+        if flowXBuf == nil || flowXBuf!.length < flowBytes {
+            flowXBuf = device.makeBuffer(length: flowBytes, options: .storageModeShared)
+            flowYBuf = device.makeBuffer(length: flowBytes, options: .storageModeShared)
+        }
+        guard let flowXBuf, let flowYBuf else { return }
 
         if let enc = cmdBuf.makeComputeCommandEncoder() {
             enc.setComputePipelineState(interpolatePipeline)
