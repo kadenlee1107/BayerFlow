@@ -607,7 +607,7 @@ static void *of_thread_func(void *arg) {
                 /* Flow reuse: check if we have a cached flow for this neighbor
                  * from the previous frame that we can warp forward. */
                 int reused = 0;
-                if (ctx->use_flow_reuse && ctx->interframe_fx) {
+                if (0 && ctx->use_flow_reuse && ctx->interframe_fx) {  /* DISABLED: additive composition produces bad flow */
                     /* The neighbor at window index i was at index (i) relative
                      * to the previous center. We need cached flow from prev_center
                      * to this same absolute frame. Window slides by 1, so the
@@ -1248,10 +1248,11 @@ static float compute_adaptive_center_weight(
         if (samples > 0) {
             double avg = frame_mag / samples;
             total_mag += avg;
-            /* Scene cut heuristic: >60% of sampled pixels have extreme flow
-             * AND average flow exceeds 30px (implausible for real camera motion).
-             * Both conditions must be true to avoid false triggers on fast pans. */
-            if ((float)extreme_pixels / samples > 0.6f && avg > 30.0f)
+            /* Scene cut heuristic: >80% of sampled pixels have extreme flow
+             * AND average flow exceeds 500px (truly implausible — block matching
+             * can produce ~100px avg flow on fast pans, so threshold must be very high).
+             * Both conditions must be true to avoid false triggers. */
+            if ((float)extreme_pixels / samples > 0.8f && avg > 500.0f)
                 scene_cut_neighbors++;
             count++;
         }
