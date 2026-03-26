@@ -509,6 +509,16 @@ typedef struct {
     float **fx_pool;  /* pre-allocated buffer pool (avoids per-frame calloc) */
     float **fy_pool;
     double t_accum;   /* thread-local timing */
+
+    /* Flow reuse: cache previous frame's close-neighbor flow fields.
+     * When window slides by 1, we warp cached flows using inter-frame flow
+     * instead of recomputing block matching. Only new neighbors get fresh OF. */
+    int use_flow_reuse;        /* 0 = disabled (cold start), 1 = enabled */
+    int prev_center_idx;       /* center index from previous frame */
+    float *cache_fx[MAX_WINDOW];  /* cached flow_x from previous frame */
+    float *cache_fy[MAX_WINDOW];  /* cached flow_y from previous frame */
+    float *interframe_fx;      /* flow from prev center to current center */
+    float *interframe_fy;
 } OFThreadCtx;
 
 typedef struct {
@@ -569,12 +579,15 @@ static void *of_thread_func(void *arg) {
         int err = 0;
 
         /* Collect eligible neighbors for batch OF.
-         * Only compute real Vision OF for dist ≤ OF_COMPUTE_RADIUS; far neighbors
-         * get scaled flow after the batch call (see below). */
+         * With flow reuse: only compute fresh OF for neighbors that don't have
+         * a valid cached flow from the previous frame. Cached flows are warped
+         * using the inter-frame flow (center_prev → center_curr).
+         * Without flow reuse: compute all close neighbors from scratch. */
         const uint16_t *batch_nbrs[MAX_WINDOW];
         float *batch_fx[MAX_WINDOW], *batch_fy[MAX_WINDOW];
         int batch_idx[MAX_WINDOW];
         int batch_n = 0;
+        size_t npix_of = (size_t)ctx->green_w * ctx->green_h;
 
         for (int i = 0; i < ctx->frames_loaded; i++) {
             if (i == ctx->center_idx) {
@@ -591,11 +604,34 @@ static void *of_thread_func(void *arg) {
             ctx->fx_out[i] = ctx->fx_pool[i];
             ctx->fy_out[i] = ctx->fy_pool[i];
             if (dist <= OF_COMPUTE_RADIUS) {
-                batch_nbrs[batch_n] = ctx->view_green[i];
-                batch_fx[batch_n]   = ctx->fx_out[i];
-                batch_fy[batch_n]   = ctx->fy_out[i];
-                batch_idx[batch_n]  = i;
-                batch_n++;
+                /* Flow reuse: check if we have a cached flow for this neighbor
+                 * from the previous frame that we can warp forward. */
+                int reused = 0;
+                if (ctx->use_flow_reuse && ctx->interframe_fx) {
+                    /* The neighbor at window index i was at index (i) relative
+                     * to the previous center. We need cached flow from prev_center
+                     * to this same absolute frame. Window slides by 1, so the
+                     * neighbor was at index (i-1) in the previous window if center
+                     * moved forward by 1. */
+                    int prev_i = i; /* same window slot */
+                    if (prev_i >= 0 && prev_i < MAX_WINDOW &&
+                        ctx->cache_fx[prev_i] && ctx->cache_fy[prev_i]) {
+                        /* Warp: new_flow = cached_flow + inter_frame_flow
+                         * (simple additive approximation — valid for small inter-frame motion) */
+                        for (size_t p = 0; p < npix_of; p++) {
+                            ctx->fx_out[i][p] = ctx->cache_fx[prev_i][p] + ctx->interframe_fx[p];
+                            ctx->fy_out[i][p] = ctx->cache_fy[prev_i][p] + ctx->interframe_fy[p];
+                        }
+                        reused = 1;
+                    }
+                }
+                if (!reused) {
+                    batch_nbrs[batch_n] = ctx->view_green[i];
+                    batch_fx[batch_n]   = ctx->fx_out[i];
+                    batch_fy[batch_n]   = ctx->fy_out[i];
+                    batch_idx[batch_n]  = i;
+                    batch_n++;
+                }
             }
         }
 
@@ -606,9 +642,40 @@ static void *of_thread_func(void *arg) {
                                            batch_fx, batch_fy);
         }
 
+        /* Cache current flow fields for next frame's reuse.
+         * Also compute inter-frame flow (current center → next center)
+         * which will be used to warp these cached flows next iteration. */
+        for (int i = 0; i < MAX_WINDOW; i++) {
+            ctx->cache_fx[i] = NULL;
+            ctx->cache_fy[i] = NULL;
+        }
+        for (int i = 0; i < ctx->frames_loaded; i++) {
+            if (i == ctx->center_idx || !ctx->fx_out[i]) continue;
+            int dist = abs(i - ctx->center_idx);
+            if (dist <= OF_COMPUTE_RADIUS) {
+                ctx->cache_fx[i] = ctx->fx_out[i];
+                ctx->cache_fy[i] = ctx->fy_out[i];
+            }
+        }
+        ctx->prev_center_idx = ctx->center_idx;
+
+        /* Store inter-frame flow: flow from current center to the next frame
+         * (dist=1 in the forward direction). This is one of the computed pairs. */
+        int next_i = ctx->center_idx + 1;
+        if (next_i < ctx->frames_loaded && ctx->fx_out[next_i]) {
+            if (!ctx->interframe_fx) {
+                ctx->interframe_fx = (float *)malloc(npix_of * sizeof(float));
+                ctx->interframe_fy = (float *)malloc(npix_of * sizeof(float));
+            }
+            if (ctx->interframe_fx && ctx->interframe_fy) {
+                memcpy(ctx->interframe_fx, ctx->fx_out[next_i], npix_of * sizeof(float));
+                memcpy(ctx->interframe_fy, ctx->fy_out[next_i], npix_of * sizeof(float));
+            }
+        }
+        ctx->use_flow_reuse = 1;
+
         /* Scale flow for far neighbors from nearest computed OF in same direction.
          * flow(N→N±k) ≈ (k / nearest_dist) × flow(N→N±nearest_dist). */
-        size_t npix_of = (size_t)ctx->green_w * ctx->green_h;
         for (int i = 0; i < ctx->frames_loaded; i++) {
             if (i == ctx->center_idx || !ctx->fx_out[i]) continue;
             int dist = abs(i - ctx->center_idx);
