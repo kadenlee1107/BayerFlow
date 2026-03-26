@@ -2014,7 +2014,7 @@ int denoise_file(
         if (dark_frame) subtract_dark_frame(window_frames[i], dark_frame, width, height);
         if (hp_profile) hotpixel_profile_apply(hp_profile, window_frames[i], width, height);
         extract_green_channel(window_frames[i], width, height, green_frames[i]);
-        spatial_filter_green(green_frames[i], green_w, green_h, tcfg.noise_sigma);
+        /* spatial_filter_green skipped: see comment in READ_INTO_SLOT */
         frames_loaded++;
     }
 
@@ -2135,7 +2135,9 @@ int denoise_file(
             if (dark_frame) subtract_dark_frame(window_frames[(slot)], dark_frame, width, height); \
             if (hp_profile) hotpixel_profile_apply(hp_profile, window_frames[(slot)], width, height); \
             extract_green_channel(window_frames[(slot)], width, height, green_frames[(slot)]); \
-            spatial_filter_green(green_frames[(slot)], green_w, green_h, tcfg.noise_sigma); \
+            /* spatial_filter_green skipped: block matching OF uses SAD which is
+             * inherently noise-robust (noise averages over 8x8 blocks). The 5x5
+             * bilateral was only needed for gradient-based Apple Vision OF. */ \
             t_accum_preproc += timer_now() - _t_pp; \
             denoised_green_valid[(slot)] = 0; /* invalidate cached denoised green */ \
             denoised_cache_valid[(slot)] = 0; /* invalidate cached denoised frame */ \
